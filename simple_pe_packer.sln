@@ -1,0 +1,55 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simple_pe_packer", "simple_pe_packer\simple_pe_packer.vcxproj", "{DBE86958-0E39-4E23-B4C0-B18B92434604}"
+	ProjectSection(ProjectDependencies) = postProject
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22} = {E25B0802-1243-46C3-99D8-00B2ACBF0E22}
+		{1ECA5707-40BE-485D-BD79-FC592B93E019} = {1ECA5707-40BE-485D-BD79-FC592B93E019}
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F} = {FBD0266C-DAC5-42F3-A321-2E9E1A17697F}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lzo-2.06", "lzo-2.06\lzo-2.06.vcxproj", "{E25B0802-1243-46C3-99D8-00B2ACBF0E22}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unpacker", "unpacker\unpacker.vcxproj", "{1ECA5707-40BE-485D-BD79-FC592B93E019}"
+	ProjectSection(ProjectDependencies) = postProject
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F} = {FBD0266C-DAC5-42F3-A321-2E9E1A17697F}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unpacker_converter", "unpacker_converter\unpacker_converter.vcxproj", "{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+		ReleaseDecompressor|Win32 = ReleaseDecompressor|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Debug|Win32.ActiveCfg = Debug|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Debug|Win32.Build.0 = Debug|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Release|Win32.ActiveCfg = Release|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Release|Win32.Build.0 = Release|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Debug|Win32.ActiveCfg = Debug|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Debug|Win32.Build.0 = Debug|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Release|Win32.ActiveCfg = Release|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Release|Win32.Build.0 = Release|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.ReleaseDecompressor|Win32.ActiveCfg = ReleaseDecompressor|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.ReleaseDecompressor|Win32.Build.0 = ReleaseDecompressor|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Debug|Win32.ActiveCfg = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Debug|Win32.Build.0 = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Release|Win32.ActiveCfg = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Release|Win32.Build.0 = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Debug|Win32.ActiveCfg = Debug|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Debug|Win32.Build.0 = Debug|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Release|Win32.ActiveCfg = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Release|Win32.Build.0 = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

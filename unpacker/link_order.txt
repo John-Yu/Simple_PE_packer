@@ -1,0 +1,4 @@
+unpacker_main@0
+lzo1z_decompress
+memset
+memcpy
