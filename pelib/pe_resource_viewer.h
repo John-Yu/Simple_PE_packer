@@ -67,18 +67,18 @@ public:
 	//Lists resource IDs existing in PE file by resource name
 	const resource_id_list list_resource_ids(const std::wstring& root_name) const;
 	//Returns resource count by type
-	unsigned long get_resource_count(resource_type type) const;
+    uint32_t get_resource_count(resource_type type) const;
 	//Returns resource count by name
-	unsigned long get_resource_count(const std::wstring& root_name) const;
+    uint32_t get_resource_count(const std::wstring& root_name) const;
 
 	//Returns language count of resource by resource type and name
-	unsigned long get_language_count(resource_type type, const std::wstring& name) const;
+    uint32_t get_language_count(resource_type type, const std::wstring& name) const;
 	//Returns language count of resource by resource names
-	unsigned long get_language_count(const std::wstring& root_name, const std::wstring& name) const;
+    uint32_t get_language_count(const std::wstring& root_name, const std::wstring& name) const;
 	//Returns language count of resource by resource type and ID
-	unsigned long get_language_count(resource_type type, uint32_t id) const;
+    uint32_t get_language_count(resource_type type, uint32_t id) const;
 	//Returns language count of resource by resource name and ID
-	unsigned long get_language_count(const std::wstring& root_name, uint32_t id) const;
+    uint32_t get_language_count(const std::wstring& root_name, uint32_t id) const;
 	//Lists resource languages by resource type and name
 	const resource_language_list list_resource_languages(resource_type type, const std::wstring& name) const;
 	//Lists resource languages by resource names
