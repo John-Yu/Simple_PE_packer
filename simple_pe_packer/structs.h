@@ -23,8 +23,6 @@ struct packed_file_info
 	DWORD total_virtual_size_of_sections; //Total virtual size of all original file sections 
 	DWORD original_entry_point; //Original entry point
 	
-	DWORD original_load_config_directory_rva; //Original load configuration directory relative address
-	
 	DWORD load_library_a; //LoadLibraryA procedure address from kernel32.dll
 	DWORD get_proc_address; //GetProcAddress procedure address from kernel32.dll
 	DWORD end_of_import_address_table; //IAT end

@@ -11,13 +11,14 @@ lzo1z_decompress        ( const lzo_bytep src, lzo_uint  src_len,
 
 //Create function without prologue and epilogue
 extern "C" void __declspec(naked) unpacker_main()
+//extern "C" void  unpacker_main()  //only for check the stack size
 {
 	//Create prologue manually
 	__asm
 	{
 		push ebp;
 		mov ebp, esp;
-		sub esp, 4096;
+		sub esp, 0x200;
 		
 		mov eax, 0x11111111;
 		mov ecx, 0x22222222;
@@ -73,7 +74,7 @@ next2:
 
 next3:
 	}
-	//
+	//Adjust image_base
 	image_base = reinterpret_cast<DWORD>(was_unpacked) - image_base;
 	//Get pointer to structure with information
 	//carefully prepared by packer
@@ -86,14 +87,9 @@ next3:
 	DWORD original_ep;
 	original_ep = info->original_entry_point + image_base;
 
-	__asm
-	{
-		//Write it to address stored in
-		//was_unpacked variable
-		mov edx, was_unpacked;
-		mov eax, original_ep;
-		mov [edx], eax;
-	}
+	//Write it to address stored in
+	//was_unpacked variable
+	*was_unpacked = original_ep;
 	
 	//Two LoadLibraryA and GetProcAddress function prototypes typedefs 
 	typedef HMODULE (__stdcall* load_library_a_func)(const char* library_name);
@@ -195,12 +191,12 @@ next3:
 	//Pointer to file header
 	IMAGE_FILE_HEADER* file_header_org;
 	//Pointer to NT header
-	PIMAGE_NT_HEADERS nt_headers_org;
+	IMAGE_NT_HEADERS* nt_headers_org;
 	//Virtual address of sections header beginning
 	DWORD offset_to_section_headers_org;
 	//Calculate this address
 	dos_header_org = reinterpret_cast<const IMAGE_DOS_HEADER*>(unpacked_mem);
-	nt_headers_org = reinterpret_cast<const PIMAGE_NT_HEADERS>(reinterpret_cast<char *>(unpacked_mem) + dos_header_org->e_lfanew);
+	nt_headers_org = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<char *>(unpacked_mem) + dos_header_org->e_lfanew);
 	file_header_org = &(nt_headers_org->FileHeader);
 	//with this formula
 	offset_to_section_headers_org = reinterpret_cast<DWORD>(unpacked_mem) + dos_header_org->e_lfanew + file_header_org->SizeOfOptionalHeader
@@ -211,12 +207,12 @@ next3:
 	//Pointer to file header
 	IMAGE_FILE_HEADER* file_header;
 	//Pointer to NT header
-	PIMAGE_NT_HEADERS nt_headers;
+	IMAGE_NT_HEADERS* nt_headers;
 	//Virtual address of sections header beginning
 	DWORD offset_to_section_headers;
 	//Calculate this address
 	dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
-	nt_headers = reinterpret_cast<const PIMAGE_NT_HEADERS>(image_base + dos_header->e_lfanew);
+	nt_headers = reinterpret_cast<IMAGE_NT_HEADERS*>(image_base + dos_header->e_lfanew);
 	file_header = &(nt_headers->FileHeader);
 	//with this formula
 	offset_to_section_headers = image_base + dos_header->e_lfanew + file_header->SizeOfOptionalHeader
@@ -324,10 +320,10 @@ next3:
 			++descr;
 		}
 	}
-	/*
+	//*
 	// adjust base address of imported data
 	DWORD locationDelta;
-	locationDelta = (nt_headers->OptionalHeader.ImageBase - nt_headers_org->OptionalHeader.ImageBase);
+	locationDelta = (image_base - nt_headers->OptionalHeader.ImageBase);
 
 	// Need relocation
 	if (locationDelta)
@@ -356,7 +352,7 @@ next3:
 						//Get DWORD at relocation address
 						DWORD* value = reinterpret_cast<DWORD*>(image_base + reloc->VirtualAddress + (elem & ((1 << 12) - 1)));
 						//Fix it like PE loader
-						*value = *value + locationDelta;
+						*value += locationDelta;
 					}
 				}
 				//Go to next relocation table
@@ -404,8 +400,7 @@ next3:
 	_asm
 	{
 		//Move to original entry point
-		mov eax, info_copy.original_entry_point;
-		add eax, image_base;
+		mov eax, original_ep;
 		leave;
 		//Like this
 		jmp eax;

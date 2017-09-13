@@ -176,7 +176,7 @@ int main(int argc, char* argv[])
 		{
 			//PE file section
 			const section& first_section = image.get_image_sections().front();
-			if (!first_section.get_name().compare(".SPP1"))
+			if (first_section.get_name().compare(".SPP1"))
 			{
 				std::cout << "Unknow packed file!" << std::endl;
 				return -1;
