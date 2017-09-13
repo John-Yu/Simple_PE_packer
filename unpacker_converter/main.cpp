@@ -56,7 +56,6 @@ int main(int argc, char* argv[])
 		//Get unpacker sections list
 		section_list& unpacker_sections = image.get_image_sections();
 		//Make sure, that there is only one section (because unpacker doesn't have imports and relocations)
-		//YUHZ 20170906 实际发现还有一个.rdata节，不知怎么去掉，所以先只能允许有两个SECTIONS 
 		if(unpacker_sections.size() >2)
 		{
 			std::cout << "Incorrect unpacker" << std::endl;
