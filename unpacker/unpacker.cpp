@@ -162,12 +162,10 @@ next3:
 	virtual_free_func virtual_free;
 	virtual_free = reinterpret_cast<virtual_free_func>(get_proc_address(kernel32_dll, buf));
 	
-	
 	//Copy all packed_file_info structure fields, because
 	//we will need them further, but we will overwrite the structure at "info" pointer soon
 	packed_file_info info_copy;
 	memcpy(&info_copy, info, sizeof(info_copy));
-	
 	
 	//Pointer to the memory 
 	//to store unpacked data
@@ -185,31 +183,56 @@ next3:
 	out_len = 0;
 
 	//Unpack with LZO algorithm
-	lzo1z_decompress(
-		reinterpret_cast<const unsigned char*>(reinterpret_cast<DWORD>(info) + sizeof(packed_file_info)),
-		info->size_of_packed_data,
-		reinterpret_cast<unsigned char*>(unpacked_mem),
-		&out_len,
-		0);
+	if (LZO_E_OK !=
+		lzo1z_decompress(
+			reinterpret_cast<const unsigned char*>(reinterpret_cast<DWORD>(info) + sizeof(packed_file_info)),
+			info->size_of_packed_data,
+			reinterpret_cast<unsigned char*>(unpacked_mem),
+			&out_len,
+			0)
+		)
+	{
+		//If something goes wrong, but
+		// naked function can not return;
+	}
 	
+	
+	//Pointer to DOS file header
+	const IMAGE_DOS_HEADER* dos_header_org;
+	//Pointer to file header
+	IMAGE_FILE_HEADER* file_header_org;
+	//Pointer to NT header
+	PIMAGE_NT_HEADERS nt_headers_org;
+	//Virtual address of sections header beginning
+	DWORD offset_to_section_headers_org;
+	//Calculate this address
+	dos_header_org = reinterpret_cast<const IMAGE_DOS_HEADER*>(unpacked_mem);
+	nt_headers_org = reinterpret_cast<const PIMAGE_NT_HEADERS>(reinterpret_cast<char *>(unpacked_mem) + dos_header_org->e_lfanew);
+	file_header_org = &(nt_headers_org->FileHeader);
+	//with this formula
+	offset_to_section_headers_org = reinterpret_cast<DWORD>(unpacked_mem) + dos_header_org->e_lfanew + file_header_org->SizeOfOptionalHeader
+		+ sizeof(IMAGE_FILE_HEADER) + sizeof(DWORD) /* Signature */;
 	
 	//Pointer to DOS file header
 	const IMAGE_DOS_HEADER* dos_header;
 	//Pointer to file header
 	IMAGE_FILE_HEADER* file_header;
+	//Pointer to NT header
+	PIMAGE_NT_HEADERS nt_headers;
 	//Virtual address of sections header beginning
 	DWORD offset_to_section_headers;
 	//Calculate this address
 	dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(original_image_base);
-	file_header = reinterpret_cast<IMAGE_FILE_HEADER*>(original_image_base + dos_header->e_lfanew + sizeof(DWORD));
+	nt_headers = reinterpret_cast<const PIMAGE_NT_HEADERS>(original_image_base + dos_header->e_lfanew);
+	file_header = &(nt_headers->FileHeader);
 	//with this formula
 	offset_to_section_headers = original_image_base + dos_header->e_lfanew + file_header->SizeOfOptionalHeader
 		+ sizeof(IMAGE_FILE_HEADER) + sizeof(DWORD) /* Signature */;
-	
-	
+
 	//Null first section memory
 	//This region matches the memory region,
 	//which is occupied by all sections in original file
+	//Only can use info_copy from now, because info will be 0
 	memset(
 		reinterpret_cast<void*>(original_image_base + rva_of_first_section),
 		0,
@@ -219,107 +242,57 @@ next3:
 	//PE file and section headers are placed
 	//We need write access
 	DWORD old_protect;
-	virtual_protect(reinterpret_cast<LPVOID>(offset_to_section_headers),
-		info_copy.number_of_sections * sizeof(IMAGE_SECTION_HEADER),
+	virtual_protect(reinterpret_cast<LPVOID>(original_image_base),
+		rva_of_first_section,
 		PAGE_READWRITE, &old_protect);
+
 
 	//Now we change section number
 	//in PE file header to original
 	file_header->NumberOfSections = info_copy.number_of_sections;
+	//Copy filled header
+	//to memory, where section headers are stored
+	memcpy(reinterpret_cast<void*>(offset_to_section_headers), reinterpret_cast<void*>(offset_to_section_headers_org), sizeof(IMAGE_SECTION_HEADER) * (file_header->NumberOfSections));
 	
-	
-	//Section header virtual address
-	DWORD current_section_structure_pos;
-	current_section_structure_pos = offset_to_section_headers;
-	//List all sections
-	for(int i = 0; i != info_copy.number_of_sections; ++i)
-	{
-		//Creates section header structure
-		IMAGE_SECTION_HEADER section_header;
-		//Set structure to null
-		memset(&section_header, 0, sizeof(section_header));
-		//Fill the important fields:
-		//Characteristics
-		section_header.Characteristics = (reinterpret_cast<packed_section*>(unpacked_mem) + i)->characteristics;
-		//File data offset
-		section_header.PointerToRawData = (reinterpret_cast<packed_section*>(unpacked_mem) + i)->pointer_to_raw_data;
-		//File data size
-		section_header.SizeOfRawData = (reinterpret_cast<packed_section*>(unpacked_mem) + i)->size_of_raw_data;
-		//Relative section virtual address
-		section_header.VirtualAddress = (reinterpret_cast<packed_section*>(unpacked_mem) + i)->virtual_address;
-		//Section virtual size
-		section_header.Misc.VirtualSize = (reinterpret_cast<packed_section*>(unpacked_mem) + i)->virtual_size;
-		//Copy original section name
-		memcpy(section_header.Name, (reinterpret_cast<packed_section*>(unpacked_mem) + i)->name, sizeof(section_header.Name));
-
-		//Copy filled header
-		//to memory, where section headers are stored
-		memcpy(reinterpret_cast<void*>(current_section_structure_pos), &section_header, sizeof(section_header));
-
-		//Move the pointer to next section header
-		current_section_structure_pos += sizeof(section_header);
-	}
-	
-	
-	//Pointer to raw section data
-	//is necessary to disassemble compressed sections data
-	//and to put them to right places
-	DWORD current_raw_data_ptr;
-	current_raw_data_ptr = 0;
-	//Restore the pointer to section headers
-	current_section_structure_pos = offset_to_section_headers;
+	PIMAGE_SECTION_HEADER section_header;
+	section_header = IMAGE_FIRST_SECTION(nt_headers);
 	//List all the sections again
-	for(int i = 0; i != info_copy.number_of_sections; ++i)
+	for(int i = 0; i < info_copy.number_of_sections; ++i, ++section_header)
 	{
-		//Section header we've just written
-		const IMAGE_SECTION_HEADER* section_header = reinterpret_cast<const IMAGE_SECTION_HEADER*>(current_section_structure_pos);
-
 		//Copying sections data to the place in memory,
 		//where they have to be placed
 		memcpy(reinterpret_cast<void*>(original_image_base + section_header->VirtualAddress),
-			reinterpret_cast<char*>(unpacked_mem) + info_copy.number_of_sections * sizeof(packed_section) + current_raw_data_ptr,
+			reinterpret_cast<char*>(unpacked_mem) + section_header->PointerToRawData,
 			section_header->SizeOfRawData);
-
-		//Move pointer to section data
-		//in unpacked data block
-		current_raw_data_ptr += section_header->SizeOfRawData;
-
-		//Turn to next section header
-		current_section_structure_pos += sizeof(IMAGE_SECTION_HEADER);
 	}
-	
+	//Size of directory table
+	DWORD size_of_directories;
+	size_of_directories = sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
+	//Calculate relative virtual address
+	//of directory table beginning
+	DWORD offset_to_directories_org;
+	offset_to_directories_org = offset_to_section_headers_org - size_of_directories;
+	//Calculate relative virtual address
+	//of directory table beginning
+	DWORD offset_to_directories;
+	offset_to_directories = offset_to_section_headers - size_of_directories;
+	//FIXME: 
+	memcpy(reinterpret_cast<void*>(offset_to_directories), reinterpret_cast<void*>(offset_to_directories_org), size_of_directories);
+
 	//Release memory with unpacked data,
 	//we don't need it anymore
 	virtual_free(unpacked_mem, 0, MEM_RELEASE);
 	
-	
-	//Calculate relative virtual address
-	//of directory table beginning
-	DWORD offset_to_directories;
-	offset_to_directories = original_image_base + dos_header->e_lfanew
-		+ sizeof(IMAGE_NT_HEADERS32) - sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
-
 	//Pointer to import directory
 	IMAGE_DATA_DIRECTORY* import_dir;
 	import_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_IMPORT);
-	//Write size and virtual address values to corresponding fields
-	import_dir->Size = info_copy.original_import_directory_size;
-	import_dir->VirtualAddress = info_copy.original_import_directory_rva;
-	
-	//Pointer to resource directory
-	IMAGE_DATA_DIRECTORY* resource_dir;
-	resource_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_RESOURCE);
-	//Write size and virtual address values to corresponding fields
-	resource_dir->Size = info_copy.original_resource_directory_size;
-	resource_dir->VirtualAddress = info_copy.original_resource_directory_rva;
 
-	
 	//If the file has imports
-	if(info_copy.original_import_directory_rva)
+	if(import_dir->VirtualAddress)
 	{
 		//First descriptor virtual address
 		IMAGE_IMPORT_DESCRIPTOR* descr;
-		descr = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(info_copy.original_import_directory_rva + original_image_base);
+		descr = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_dir->VirtualAddress + original_image_base);
 
 		//List all descriptors
 		//Last one is nulled
@@ -358,106 +331,63 @@ next3:
 			++descr;
 		}
 	}
+	/*
+	// adjust base address of imported data
+	DWORD locationDelta;
+	locationDelta = (nt_headers->OptionalHeader.ImageBase - nt_headers_org->OptionalHeader.ImageBase);
 
-	//If a file had relocations and it
-	//was moved by the loader
-	if(info_copy.original_relocation_directory_rva
-		&& original_image_base_no_fixup != original_image_base)
+	// Need relocation
+	if (locationDelta)
 	{
-		//Pointer to a first IMAGE_BASE_RELOCATION structure
-		const IMAGE_BASE_RELOCATION* reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(info_copy.original_relocation_directory_rva + original_image_base);
-
-		//Relocated elements (relocations) directory size
-		unsigned long reloc_size = info_copy.original_relocation_directory_size;
-		//Count of processed bytes in a directory
-		unsigned long read_size = 0;
-
-		//List relocation tables
-		while(reloc->SizeOfBlock && read_size < reloc_size)
+		//Pointer to relocation directory
+		IMAGE_DATA_DIRECTORY* relocation_dir;
+		relocation_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_BASERELOC);
+		//If a file had relocations and it
+		//was moved by the loader
+		if (relocation_dir->VirtualAddress)
 		{
-			//List all elements in a table
-			for(unsigned long i = sizeof(IMAGE_BASE_RELOCATION); i < reloc->SizeOfBlock; i += sizeof(WORD))
+			//Pointer to a first IMAGE_BASE_RELOCATION structure
+			const IMAGE_BASE_RELOCATION* reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(relocation_dir->VirtualAddress + original_image_base);
+
+			//List relocation tables
+			while (reloc->VirtualAddress > 0)
 			{
-				//Relocation value
-				WORD elem = *reinterpret_cast<const WORD*>(reinterpret_cast<const char*>(reloc) + i);
-				//If this is IMAGE_REL_BASED_HIGHLOW relocation (there are no other in PE x86)
-				if((elem >> 12) == IMAGE_REL_BASED_HIGHLOW)
+				//List all elements in a table
+				for (unsigned long i = sizeof(IMAGE_BASE_RELOCATION); i < reloc->SizeOfBlock; i += sizeof(WORD))
 				{
-					//Get DWORD at relocation address
-					DWORD* value = reinterpret_cast<DWORD*>(original_image_base + reloc->VirtualAddress + (elem & ((1 << 12) - 1)));
-					//Fix it like PE loader
-					*value = *value - original_image_base_no_fixup + original_image_base;
+					//Relocation value
+					WORD elem = *reinterpret_cast<const WORD*>(reinterpret_cast<const char*>(reloc) + i);
+					//If this is IMAGE_REL_BASED_HIGHLOW relocation (there are no other in PE x86)
+					if ((elem >> 12) == IMAGE_REL_BASED_HIGHLOW)
+					{
+						//Get DWORD at relocation address
+						DWORD* value = reinterpret_cast<DWORD*>(original_image_base + reloc->VirtualAddress + (elem & ((1 << 12) - 1)));
+						//Fix it like PE loader
+						*value = *value + locationDelta;
+					}
 				}
-			}
-
-			//Calculate number of bytes processed
-			//in relocation directory
-			read_size += reloc->SizeOfBlock;
-			//Go to next relocation table
-			reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(reinterpret_cast<const char*>(reloc) + reloc->SizeOfBlock);
-		}
-	}
-	
-	
-	//If file has load configuration directory
-	if(info_copy.original_load_config_directory_rva)
-	{
-		//Get pointer to original load configuration directory
-		const IMAGE_LOAD_CONFIG_DIRECTORY32* cfg = reinterpret_cast<const IMAGE_LOAD_CONFIG_DIRECTORY32*>(info_copy.original_load_config_directory_rva + original_image_base);
-
-		//If the directory has LOCK prefixes table
-		//and the loader overwrites our fake LOCK opcode
-		//to NOP (0x90) (i.e. the system has a single processor)
-		if(cfg->LockPrefixTable && info_copy.lock_opcode == 0x90 /* NOP opcode */)
-		{
-			//Get pointer to first element of
-			//absolute address of LOCK prefixes table
-			const DWORD* table_ptr = reinterpret_cast<const DWORD*>(cfg->LockPrefixTable);
-			//Enumerate them
-			while(true)
-			{
-				//Pointer to LOCK prefix
-				BYTE* lock_prefix_va = reinterpret_cast<BYTE*>(*table_ptr);
-
-				if(!lock_prefix_va)
-				break;
-
-				//Change it to NOP
-				*lock_prefix_va = 0x90;
+				//Go to next relocation table
+				reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(reinterpret_cast<const char*>(reloc) + reloc->SizeOfBlock);
 			}
 		}
+
 	}
-	
-	//Copy TLS index
-	if(info_copy.original_tls_index_rva)
-		*reinterpret_cast<DWORD*>(info_copy.original_tls_index_rva + original_image_base) = info_copy.tls_index;
-		
-	if(info_copy.original_rva_of_tls_callbacks)
+	//*/
+	//FIXME:
+	//Pointer to TLS directory
+	IMAGE_DATA_DIRECTORY* tls_dir;
+	tls_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_TLS);
+
+	if(tls_dir->VirtualAddress)
 	{
+		//*
+		PIMAGE_TLS_DIRECTORY tls;
+		tls = reinterpret_cast<PIMAGE_TLS_DIRECTORY>(original_image_base + tls_dir->VirtualAddress);
 		//If TLS has callbacks
 		PIMAGE_TLS_CALLBACK* tls_callback_address;
 		//Pointer to first callback of an original array
-		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.original_rva_of_tls_callbacks + original_image_base);
-		//Offset relative to the beginning of original TLS callbacks array
-		DWORD offset = 0;
+		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(tls->AddressOfCallBacks);
 
-		while(true)
-		{
-			//If callback is null - this is the end of array
-			if(!*tls_callback_address)
-				break;
-
-			//Copy the address of original one
-			//to our callbacks array
-			*reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + original_image_base + offset) = *tls_callback_address;
-
-			//Move to next callback
-			++tls_callback_address;
-			offset += sizeof(DWORD);
-		}
-
-		//Return to the beginning of the new array
-		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + original_image_base);
 		while(true)
 		{
 			//If callback is null - this is the end of array
@@ -470,11 +400,12 @@ next3:
 			//Move to next callback
 			++tls_callback_address;
 		}
+		//*/
 	}
 	
 	
 	//Restore headers memory attributes
-	virtual_protect(reinterpret_cast<LPVOID>(offset_to_section_headers), info_copy.number_of_sections * sizeof(IMAGE_SECTION_HEADER), old_protect, &old_protect);
+	virtual_protect(reinterpret_cast<LPVOID>(original_image_base), rva_of_first_section, old_protect, &old_protect);
 
 	//Create epilogue manually
 	_asm

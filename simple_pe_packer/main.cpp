@@ -134,8 +134,8 @@ int main(int argc, char* argv[])
 		system("pause");
 		return 0;
 	}
-
-	std::cout << "Packing " << input_file_name << std::endl;
+	std::string stmp = decompress_mode ? "Unpacking " : "Packing ";
+	std::cout << stmp << input_file_name << std::endl;
 	//Open a file
 	std::auto_ptr<std::ifstream> file;
 	file.reset(new std::ifstream(input_file_name, std::ios::in | std::ios::binary));
@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
 		//"raw" debug information data
 		//They are not used while packing, so we don't load these data
 		pe_base image(*file, pe_properties_32(), false);
-		if (!decompress_mode)
+		if (!decompress_mode) // Only need for packer
 		{
 			//Read the file data before reset it 
 			(*file).seekg(0, std::ios::beg);
@@ -176,6 +176,11 @@ int main(int argc, char* argv[])
 		{
 			//PE file section
 			const section& first_section = image.get_image_sections().front();
+			if (!first_section.get_name().compare(".SPP1"))
+			{
+				std::cout << "Unknow packed file!" << std::endl;
+				return -1;
+			}
 			std::string section_data = first_section.get_raw_data();
 			//Get pointer to structure with information
 			//carefully prepared by packer
@@ -193,7 +198,6 @@ int main(int argc, char* argv[])
 				MEM_COMMIT,
 				PAGE_READWRITE);
 			//Unpacked data size
-			//(in fact, this variable is unnecessary)
 			lzo_uint out_len;
 			out_len = 0;
 
@@ -239,7 +243,6 @@ int main(int argc, char* argv[])
 				return -1;
 			}
 			new_pe_file.write(reinterpret_cast<const char*>(unpacked_mem), out_len);
-
 			new_pe_file.close();
 			VirtualFree(unpacked_mem, out_len, MEM_RELEASE);
 
