@@ -15,35 +15,27 @@ extern "C" void __declspec(naked) unpacker_main()
 	//Create prologue manually
 	__asm
 	{
-		jmp next;
-		ret 0xC;
-next:
-
 		push ebp;
 		mov ebp, esp;
 		sub esp, 4096;
 		
 		mov eax, 0x11111111;
 		mov ecx, 0x22222222;
-		mov edx, 0x33333333;
 	}
 	
 	//Image loading address
-	unsigned int original_image_base;
+	DWORD image_base;
 	//First section relative address,
 	//in which the packer stores its information
 	//and packed data themselves
-	unsigned int rva_of_first_section;
-	//Image loading address (Original one, relocations are not applied to it)
-	unsigned int original_image_base_no_fixup;
+	DWORD rva_of_first_section;
 	
 	//These instructions are required only to
 	//replace the addresses in unpacker builder with real ones
 	__asm
 	{
-		mov original_image_base, eax;
+		mov image_base, eax;
 		mov rva_of_first_section, ecx;
-		mov original_image_base_no_fixup, edx;
 	}
 	
 	//Address of the variable,
@@ -81,17 +73,18 @@ next2:
 
 next3:
 	}
-	
+	//
+	image_base = reinterpret_cast<DWORD>(was_unpacked) - image_base;
 	//Get pointer to structure with information
 	//carefully prepared by packer
 	const packed_file_info* info;
 	//It is stored in the beginning
 	//of packed file first section
-	info = reinterpret_cast<const packed_file_info*>(original_image_base + rva_of_first_section);
+	info = reinterpret_cast<const packed_file_info*>(image_base + rva_of_first_section);
 
 	//Get original entry point address
 	DWORD original_ep;
-	original_ep = info->original_entry_point + original_image_base;
+	original_ep = info->original_entry_point + image_base;
 
 	__asm
 	{
@@ -222,11 +215,11 @@ next3:
 	//Virtual address of sections header beginning
 	DWORD offset_to_section_headers;
 	//Calculate this address
-	dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(original_image_base);
-	nt_headers = reinterpret_cast<const PIMAGE_NT_HEADERS>(original_image_base + dos_header->e_lfanew);
+	dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(image_base);
+	nt_headers = reinterpret_cast<const PIMAGE_NT_HEADERS>(image_base + dos_header->e_lfanew);
 	file_header = &(nt_headers->FileHeader);
 	//with this formula
-	offset_to_section_headers = original_image_base + dos_header->e_lfanew + file_header->SizeOfOptionalHeader
+	offset_to_section_headers = image_base + dos_header->e_lfanew + file_header->SizeOfOptionalHeader
 		+ sizeof(IMAGE_FILE_HEADER) + sizeof(DWORD) /* Signature */;
 
 	//Null first section memory
@@ -234,7 +227,7 @@ next3:
 	//which is occupied by all sections in original file
 	//Only can use info_copy from now, because info will be 0
 	memset(
-		reinterpret_cast<void*>(original_image_base + rva_of_first_section),
+		reinterpret_cast<void*>(image_base + rva_of_first_section),
 		0,
 		info_copy.total_virtual_size_of_sections - rva_of_first_section);
 
@@ -242,7 +235,7 @@ next3:
 	//PE file and section headers are placed
 	//We need write access
 	DWORD old_protect;
-	virtual_protect(reinterpret_cast<LPVOID>(original_image_base),
+	virtual_protect(reinterpret_cast<LPVOID>(image_base),
 		rva_of_first_section,
 		PAGE_READWRITE, &old_protect);
 
@@ -261,7 +254,7 @@ next3:
 	{
 		//Copying sections data to the place in memory,
 		//where they have to be placed
-		memcpy(reinterpret_cast<void*>(original_image_base + section_header->VirtualAddress),
+		memcpy(reinterpret_cast<void*>(image_base + section_header->VirtualAddress),
 			reinterpret_cast<char*>(unpacked_mem) + section_header->PointerToRawData,
 			section_header->SizeOfRawData);
 	}
@@ -292,7 +285,7 @@ next3:
 	{
 		//First descriptor virtual address
 		IMAGE_IMPORT_DESCRIPTOR* descr;
-		descr = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_dir->VirtualAddress + original_image_base);
+		descr = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(import_dir->VirtualAddress + image_base);
 
 		//List all descriptors
 		//Last one is nulled
@@ -300,13 +293,13 @@ next3:
 		{
 			//Load the required DLL
 			HMODULE dll;
-			dll = load_library_a(reinterpret_cast<char*>(descr->Name + original_image_base));
+			dll = load_library_a(reinterpret_cast<char*>(descr->Name + image_base));
 			//Pointers to address table and lookup table
 			DWORD* lookup, *address;
 			//Take into account that lookup table may be absent,
 			//as I mentioned at previous step
-			lookup = reinterpret_cast<DWORD*>(original_image_base + (descr->OriginalFirstThunk ? descr->OriginalFirstThunk : descr->FirstThunk));
-			address = reinterpret_cast<DWORD*>(descr->FirstThunk + original_image_base);
+			lookup = reinterpret_cast<DWORD*>(image_base + (descr->OriginalFirstThunk ? descr->OriginalFirstThunk : descr->FirstThunk));
+			address = reinterpret_cast<DWORD*>(descr->FirstThunk + image_base);
 
 			//List all descriptor imports
 			while(true)
@@ -320,7 +313,7 @@ next3:
 				if(IMAGE_SNAP_BY_ORDINAL32(lookup_value))
 					*address = static_cast<DWORD>(get_proc_address(dll, reinterpret_cast<const char*>(lookup_value & ~IMAGE_ORDINAL_FLAG32)));
 				else
-					*address = static_cast<DWORD>(get_proc_address(dll, reinterpret_cast<const char*>(lookup_value + original_image_base + sizeof(WORD))));
+					*address = static_cast<DWORD>(get_proc_address(dll, reinterpret_cast<const char*>(lookup_value + image_base + sizeof(WORD))));
 
 				//Move to next element
 				++lookup;
@@ -347,7 +340,7 @@ next3:
 		if (relocation_dir->VirtualAddress)
 		{
 			//Pointer to a first IMAGE_BASE_RELOCATION structure
-			const IMAGE_BASE_RELOCATION* reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(relocation_dir->VirtualAddress + original_image_base);
+			const IMAGE_BASE_RELOCATION* reloc = reinterpret_cast<const IMAGE_BASE_RELOCATION*>(relocation_dir->VirtualAddress + image_base);
 
 			//List relocation tables
 			while (reloc->VirtualAddress > 0)
@@ -361,7 +354,7 @@ next3:
 					if ((elem >> 12) == IMAGE_REL_BASED_HIGHLOW)
 					{
 						//Get DWORD at relocation address
-						DWORD* value = reinterpret_cast<DWORD*>(original_image_base + reloc->VirtualAddress + (elem & ((1 << 12) - 1)));
+						DWORD* value = reinterpret_cast<DWORD*>(image_base + reloc->VirtualAddress + (elem & ((1 << 12) - 1)));
 						//Fix it like PE loader
 						*value = *value + locationDelta;
 					}
@@ -382,7 +375,7 @@ next3:
 	{
 		//*
 		PIMAGE_TLS_DIRECTORY tls;
-		tls = reinterpret_cast<PIMAGE_TLS_DIRECTORY>(original_image_base + tls_dir->VirtualAddress);
+		tls = reinterpret_cast<PIMAGE_TLS_DIRECTORY>(image_base + tls_dir->VirtualAddress);
 		//If TLS has callbacks
 		PIMAGE_TLS_CALLBACK* tls_callback_address;
 		//Pointer to first callback of an original array
@@ -395,7 +388,7 @@ next3:
 				break;
 
 			//Execute callback
-			(*tls_callback_address)(reinterpret_cast<PVOID>(original_image_base), DLL_PROCESS_ATTACH, 0);
+			(*tls_callback_address)(reinterpret_cast<PVOID>(image_base), DLL_PROCESS_ATTACH, 0);
 
 			//Move to next callback
 			++tls_callback_address;
@@ -405,14 +398,14 @@ next3:
 	
 	
 	//Restore headers memory attributes
-	virtual_protect(reinterpret_cast<LPVOID>(original_image_base), rva_of_first_section, old_protect, &old_protect);
+	virtual_protect(reinterpret_cast<LPVOID>(image_base), rva_of_first_section, old_protect, &old_protect);
 
 	//Create epilogue manually
 	_asm
 	{
 		//Move to original entry point
 		mov eax, info_copy.original_entry_point;
-		add eax, original_image_base;
+		add eax, image_base;
 		leave;
 		//Like this
 		jmp eax;
