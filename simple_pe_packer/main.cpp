@@ -6,8 +6,8 @@
 #include <boost/program_options.hpp>
 #include <boost/timer.hpp>
 //PE library header file 
-#include "../pelib/pe_bliss.h"
-#include "../pelib//pe_bliss_resources.h"
+#include "pe_bliss.h"
+#include "pe_bliss_resources.h"
 //LZO1Z999 algorithm header file
 #include "lzo/lzo1z.h"
 //Our structures header file

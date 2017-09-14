@@ -122,6 +122,7 @@
     <ClInclude Include="config1x.h" />
     <ClInclude Include="config1z.h" />
     <ClInclude Include="lzo_conf.h" />
+    <ClInclude Include="lzo_func.h" />
     <ClInclude Include="lzo_ptr.h" />
     <ClInclude Include="lzo_supp.h" />
     <ClInclude Include="parameters.h" />
