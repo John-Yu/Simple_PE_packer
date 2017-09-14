@@ -16,12 +16,12 @@ struct packed_section
 //Structure to store information about packed file
 struct packed_file_info
 {
-	BYTE number_of_sections; //Number of original file sections 
+	//BYTE number_of_sections; //Number of original file sections 
 	DWORD size_of_packed_data; //Size of packed data
 	DWORD size_of_unpacked_data; //Size of original data
 	
-	DWORD total_virtual_size_of_sections; //Total virtual size of all original file sections 
-	DWORD original_entry_point; //Original entry point
+	//DWORD total_virtual_size_of_sections; //Total virtual size of all original file sections 
+	//DWORD original_entry_point; //Original entry point
 	
 	DWORD load_library_a; //LoadLibraryA procedure address from kernel32.dll
 	DWORD get_proc_address; //GetProcAddress procedure address from kernel32.dll

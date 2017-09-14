@@ -2,12 +2,7 @@
 #include "../simple_pe_packer/structs.h"
 
 //Unpacking algorithm
-#include "lzo_conf.h"
-/* decompression */
-LZO_EXTERN(int)
-lzo1z_decompress        ( const lzo_bytep src, lzo_uint  src_len,
-                                lzo_bytep dst, lzo_uintp dst_len,
-                                lzo_voidp wrkmem /* NOT USED */ );
+#include "lzo/lzo1z.h"
 
 //Create function without prologue and epilogue
 extern "C" void __declspec(naked) unpacker_main()
@@ -83,14 +78,6 @@ next3:
 	//of packed file first section
 	info = reinterpret_cast<const packed_file_info*>(image_base + rva_of_first_section);
 
-	//Get original entry point address
-	DWORD original_ep;
-	original_ep = info->original_entry_point + image_base;
-
-	//Write it to address stored in
-	//was_unpacked variable
-	*was_unpacked = original_ep;
-	
 	//Two LoadLibraryA and GetProcAddress function prototypes typedefs 
 	typedef HMODULE (__stdcall* load_library_a_func)(const char* library_name);
 	typedef INT_PTR (__stdcall* get_proc_address_func)(HMODULE dll, const char* func_name);
@@ -150,11 +137,6 @@ next3:
 	//Get VirtualFree function address
 	virtual_free_func virtual_free;
 	virtual_free = reinterpret_cast<virtual_free_func>(get_proc_address(kernel32_dll, buf));
-	
-	//Copy all packed_file_info structure fields, because
-	//we will need them further, but we will overwrite the structure at "info" pointer soon
-	packed_file_info info_copy;
-	memcpy(&info_copy, info, sizeof(info_copy));
 	
 	//Pointer to the memory 
 	//to store unpacked data
@@ -218,14 +200,15 @@ next3:
 	offset_to_section_headers = image_base + dos_header->e_lfanew + file_header->SizeOfOptionalHeader
 		+ sizeof(IMAGE_FILE_HEADER) + sizeof(DWORD) /* Signature */;
 
+	PIMAGE_SECTION_HEADER section_header;
+	section_header = IMAGE_FIRST_SECTION(nt_headers);
 	//Null first section memory
 	//This region matches the memory region,
 	//which is occupied by all sections in original file
-	//Only can use info_copy from now, because info will be 0
 	memset(
 		reinterpret_cast<void*>(image_base + rva_of_first_section),
 		0,
-		info_copy.total_virtual_size_of_sections - rva_of_first_section);
+		section_header->Misc.VirtualSize);
 
 	//Let's change memory block attributes, in which
 	//PE file and section headers are placed
@@ -235,18 +218,27 @@ next3:
 		rva_of_first_section,
 		PAGE_READWRITE, &old_protect);
 
+	//Get original entry point address
+	DWORD original_ep;
+	original_ep = nt_headers_org->OptionalHeader.AddressOfEntryPoint + image_base;
+
+	//Write it to address stored in
+	//was_unpacked variable
+	*was_unpacked = original_ep;
 
 	//Now we change section number
 	//in PE file header to original
-	file_header->NumberOfSections = info_copy.number_of_sections;
+	file_header->NumberOfSections = file_header_org->NumberOfSections;
+	//Restore AddressOfEntryPoint
+	nt_headers->OptionalHeader.AddressOfEntryPoint = nt_headers_org->OptionalHeader.AddressOfEntryPoint;
+	//Restore SizeOfImage
+	nt_headers->OptionalHeader.SizeOfImage = nt_headers_org->OptionalHeader.SizeOfImage;
 	//Copy filled header
 	//to memory, where section headers are stored
 	memcpy(reinterpret_cast<void*>(offset_to_section_headers), reinterpret_cast<void*>(offset_to_section_headers_org), sizeof(IMAGE_SECTION_HEADER) * (file_header->NumberOfSections));
 	
-	PIMAGE_SECTION_HEADER section_header;
-	section_header = IMAGE_FIRST_SECTION(nt_headers);
 	//List all the sections again
-	for(int i = 0; i < info_copy.number_of_sections; ++i, ++section_header)
+	for(int i = 0; i < file_header->NumberOfSections; ++i, ++section_header)
 	{
 		//Copying sections data to the place in memory,
 		//where they have to be placed

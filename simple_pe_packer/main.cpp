@@ -9,7 +9,7 @@
 #include "../pelib/pe_bliss.h"
 #include "../pelib//pe_bliss_resources.h"
 //LZO1Z999 algorithm header file
-#include "../lzo-2.06/include/lzo/lzo1z.h"
+#include "lzo/lzo1z.h"
 //Our structures header file
 #include "structs.h"
 //Header file with unpacker parameters
@@ -23,10 +23,10 @@ using namespace pe_bliss;
 #ifndef _M_X64
 #ifdef _DEBUG
 #pragma comment(lib, "../pelib/pe_bliss_d.lib")
-#pragma comment(lib, "../Debug/lzo-2.06.lib")
+#pragma comment(lib, "../Debug/lzo-2.10.lib")
 #else
 #pragma comment(lib, "../pelib/pe_bliss.lib")
-#pragma comment(lib, "../Release/lzo-2.06.lib")
+#pragma comment(lib, "../Release/lzo-2.10.lib")
 #endif
 #else
 #ifdef _DEBUG
@@ -287,14 +287,6 @@ int main(int argc, char* argv[])
 
 		//PE file basic information structure
 		packed_file_info basic_info = {0};
-		//Get and save original section count
-		basic_info.number_of_sections = sections.size();
-		
-		//Save its entry point
-		basic_info.original_entry_point = image.get_ep();
-		//Save all packed file sections total virtual size
-		basic_info.total_virtual_size_of_sections = image.get_size_of_image();
-
 
 		//New section
 		section new_section;
@@ -385,7 +377,8 @@ int main(int argc, char* argv[])
 				+ pe_utils::align_up(last_section.get_virtual_size(), image.get_section_alignment())
 				//Subtract first section size
 				- first_section.get_virtual_address();
-			
+			//FIXME: Maybe -f ,I don't know
+			total_virtual_size = pe_utils::align_up<DWORD>( max(total_virtual_size, out_buf.size()), image.get_section_alignment() );
 			
 			//Delete all PE file sections, except resource section
 			//FIXME : resource section
