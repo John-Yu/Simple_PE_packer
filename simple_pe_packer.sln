@@ -1,11 +1,13 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.26430.6
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "simple_pe_packer", "simple_pe_packer\simple_pe_packer.vcxproj", "{DBE86958-0E39-4E23-B4C0-B18B92434604}"
 	ProjectSection(ProjectDependencies) = postProject
-		{E25B0802-1243-46C3-99D8-00B2ACBF0E22} = {E25B0802-1243-46C3-99D8-00B2ACBF0E22}
 		{1ECA5707-40BE-485D-BD79-FC592B93E019} = {1ECA5707-40BE-485D-BD79-FC592B93E019}
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F} = {FBD0266C-DAC5-42F3-A321-2E9E1A17697F}
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83} = {44B4D7BB-DC73-4639-9DA3-496E45658B83}
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lzo-2.06", "lzo-2.06\lzo-2.06.vcxproj", "{E25B0802-1243-46C3-99D8-00B2ACBF0E22}"
@@ -17,37 +19,70 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unpacker", "unpacker\unpack
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unpacker_converter", "unpacker_converter\unpacker_converter.vcxproj", "{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lzo-2.10", "lzo-2.10\lzo_2.10.vcxproj", "{44B4D7BB-DC73-4639-9DA3-496E45658B83}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
+		Debug|x64 = Debug|x64
 		Release|Win32 = Release|Win32
+		Release|x64 = Release|x64
 		ReleaseDecompressor|Win32 = ReleaseDecompressor|Win32
+		ReleaseDecompressor|x64 = ReleaseDecompressor|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Debug|Win32.ActiveCfg = Debug|Win32
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Debug|Win32.Build.0 = Debug|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Debug|x64.ActiveCfg = Debug|Win32
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Release|Win32.ActiveCfg = Release|Win32
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Release|Win32.Build.0 = Release|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.Release|x64.ActiveCfg = Release|Win32
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
 		{DBE86958-0E39-4E23-B4C0-B18B92434604}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{DBE86958-0E39-4E23-B4C0-B18B92434604}.ReleaseDecompressor|x64.ActiveCfg = ReleaseDecompressor|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Debug|Win32.ActiveCfg = Debug|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Debug|Win32.Build.0 = Debug|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Debug|x64.ActiveCfg = Debug|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Release|Win32.ActiveCfg = Release|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Release|Win32.Build.0 = Release|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.Release|x64.ActiveCfg = Release|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.ReleaseDecompressor|Win32.ActiveCfg = ReleaseDecompressor|Win32
 		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.ReleaseDecompressor|Win32.Build.0 = ReleaseDecompressor|Win32
+		{E25B0802-1243-46C3-99D8-00B2ACBF0E22}.ReleaseDecompressor|x64.ActiveCfg = ReleaseDecompressor|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Debug|Win32.ActiveCfg = Release|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Debug|Win32.Build.0 = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Debug|x64.ActiveCfg = Debug|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Release|Win32.ActiveCfg = Release|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Release|Win32.Build.0 = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.Release|x64.ActiveCfg = Release|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
 		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|x64.ActiveCfg = Debug|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|x64.Build.0 = Debug|Win32
+		{1ECA5707-40BE-485D-BD79-FC592B93E019}.ReleaseDecompressor|x64.Deploy.0 = Debug|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Debug|Win32.ActiveCfg = Debug|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Debug|Win32.Build.0 = Debug|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Debug|x64.ActiveCfg = Debug|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Release|Win32.ActiveCfg = Release|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Release|Win32.Build.0 = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.Release|x64.ActiveCfg = Release|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
 		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|x64.ActiveCfg = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|x64.Build.0 = Release|Win32
+		{FBD0266C-DAC5-42F3-A321-2E9E1A17697F}.ReleaseDecompressor|x64.Deploy.0 = Release|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Debug|Win32.ActiveCfg = Debug|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Debug|Win32.Build.0 = Debug|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Debug|x64.ActiveCfg = Debug|x64
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Debug|x64.Build.0 = Debug|x64
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Release|Win32.ActiveCfg = Release|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Release|Win32.Build.0 = Release|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Release|x64.ActiveCfg = Release|x64
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.Release|x64.Build.0 = Release|x64
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|Win32.ActiveCfg = Release|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|x64.ActiveCfg = Release|x64
+		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

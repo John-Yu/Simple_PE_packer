@@ -9,7 +9,7 @@
 #include "../pelib/pe_bliss.h"
 #include "../pelib//pe_bliss_resources.h"
 //LZO1Z999 algorithm header file
-#include "../lzo-2.06/include/lzo/lzo1z.h"
+#include "lzo/lzo1z.h"
 //Our structures header file
 #include "structs.h"
 //Header file with unpacker parameters
@@ -23,10 +23,10 @@ using namespace pe_bliss;
 #ifndef _M_X64
 #ifdef _DEBUG
 #pragma comment(lib, "../pelib/pe_bliss_d.lib")
-#pragma comment(lib, "../Debug/lzo-2.06.lib")
+#pragma comment(lib, "../Debug/lzo-2.10.lib")
 #else
 #pragma comment(lib, "../pelib/pe_bliss.lib")
-#pragma comment(lib, "../Release/lzo-2.06.lib")
+#pragma comment(lib, "../Release/lzo-2.10.lib")
 #endif
 #else
 #ifdef _DEBUG
@@ -50,6 +50,8 @@ int main(int argc, char* argv[])
 	//Forced packing - even potentially incorrect file
 	//will be packed
 	bool force_mode = false;
+	//Decompress mode 
+	bool decompress_mode = false;
 	//Whether resources should be packed
 	bool repack_resources;
 	//Whether loading configuration directory should be packed
@@ -63,6 +65,12 @@ int main(int argc, char* argv[])
 	std::string input_file_name;
 	//Path to packed file
 	std::string output_file_name;
+
+	//File data
+	std::string file_data;
+	//File size
+	uint32_t file_size;
+
 
 	//Create options description
 	po::options_description visible_options("DXPack Packer 1.1\nCommand Line Options");
@@ -78,10 +86,11 @@ int main(int argc, char* argv[])
 		visible_options.add_options()
 			("out-file,o", po::value<std::string>(&output_file_name), "Output file name")
 			("file-align,a", po::value<unsigned long>(&file_alignment)->default_value(512), "Packed file alignment")
-			("strip-dos,s", po::value<bool>(&strip_dos_headers)->default_value(true), "Strip DOS headers")
+			("strip-dos,s", po::value<bool>(&strip_dos_headers)->default_value(false), "Strip DOS headers")
 			("repack-res,r", po::value<bool>(&repack_resources)->default_value(true), "Repack resources")
 			("build-load-config,l", po::value<bool>(&rebuild_load_config)->default_value(true), "Rebuild Load Config directory")
 			("force,f", "Force packing of possibly incorrect binaries")
+			("decompress,d", "Decompress the packed file")
 			;
 
 		cmdline.add(visible_options);
@@ -110,6 +119,12 @@ int main(int argc, char* argv[])
 			std::cout << "Force mode is active!" << std::endl;
 			force_mode = true;
 		}
+		//If decompress mode is specified
+		if (vm.count("decompress"))
+		{
+			std::cout << "decompress mode is active!" << std::endl;
+			decompress_mode = true;
+		}
 	}
 	catch(const std::exception& e)
 	{
@@ -119,8 +134,8 @@ int main(int argc, char* argv[])
 		system("pause");
 		return 0;
 	}
-
-	std::cout << "Packing " << input_file_name << std::endl;
+	std::string stmp = decompress_mode ? "Unpacking " : "Packing ";
+	std::cout << stmp << input_file_name << std::endl;
 	//Open a file
 	std::auto_ptr<std::ifstream> file;
 	file.reset(new std::ifstream(input_file_name, std::ios::in | std::ios::binary));
@@ -139,6 +154,16 @@ int main(int argc, char* argv[])
 		//"raw" debug information data
 		//They are not used while packing, so we don't load these data
 		pe_base image(*file, pe_properties_32(), false);
+		if (!decompress_mode) // Only need for packer
+		{
+			//Read the file data before reset it 
+			(*file).seekg(0, std::ios::beg);
+			(*file).seekg(0, std::ios::end);
+			file_size = (*file).tellg();
+			(*file).seekg(0, std::ios::beg);
+			file_data.resize(file_size);
+			(*file).read(&file_data[0], file_size);
+		}
 		file.reset(0); //Close file and free memory
 
 		//Check if .NET image was passed
@@ -147,7 +172,83 @@ int main(int argc, char* argv[])
 			std::cout << ".NET image cannot be packed!" << std::endl;
 			return -1;
 		}
+		if (decompress_mode)
+		{
+			//PE file section
+			const section& first_section = image.get_image_sections().front();
+			if (first_section.get_name().compare(".SPP1"))
+			{
+				std::cout << "Unknow packed file!" << std::endl;
+				return -1;
+			}
+			std::string section_data = first_section.get_raw_data();
+			//Get pointer to structure with information
+			//carefully prepared by packer
+			const packed_file_info* info;
+			//It is stored in the beginning
+			//of packed file first section
+			info = reinterpret_cast<const packed_file_info*>(section_data.data());
+			//Pointer to the memory 
+			//to store unpacked data
+			LPVOID unpacked_mem;
+			//Allocate the memory
+			unpacked_mem = VirtualAlloc(
+				0,
+				info->size_of_unpacked_data,
+				MEM_COMMIT,
+				PAGE_READWRITE);
+			//Unpacked data size
+			lzo_uint out_len;
+			out_len = 0;
 
+			//Unpack with LZO algorithm
+			lzo1z_decompress(
+				reinterpret_cast<const unsigned char*>(reinterpret_cast<DWORD>(info) + sizeof(packed_file_info)),
+				info->size_of_packed_data,
+				reinterpret_cast<unsigned char*>(unpacked_mem),
+				&out_len,
+				0);
+
+			std::string base_file_name;
+
+			if (output_file_name.empty())
+			{
+				//Create new PE file
+				//Get the name of original file without directory
+				base_file_name = input_file_name;
+				std::string dir_name;
+				std::string::size_type slash_pos;
+				if ((slash_pos = base_file_name.find_last_of("/\\")) != std::string::npos)
+				{
+					dir_name = base_file_name.substr(0, slash_pos + 1); //Source file directory
+					base_file_name = base_file_name.substr(slash_pos + 1); //Source file name
+				}
+
+				//Give a name to a new file: "packed_" + original_file_name
+				//Concatenate it with original directory name to save it to a folder where
+				//original file is stored
+				base_file_name = dir_name + "unpacked_" + base_file_name;
+			}
+			else
+			{
+				base_file_name = output_file_name;
+			}
+
+			//Create file
+			std::ofstream new_pe_file(base_file_name.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+			if (!new_pe_file)
+			{
+				//If failed to create file - display an error message
+				std::cout << "Cannot create " << base_file_name << std::endl;
+				return -1;
+			}
+			new_pe_file.write(reinterpret_cast<const char*>(unpacked_mem), out_len);
+			new_pe_file.close();
+			VirtualFree(unpacked_mem, out_len, MEM_RELEASE);
+
+			return 0;
+		}
+		
 		//Calculate file sections entropy to make sure that file was not packed
 		{
 			std::cout << "Entropy of sections: ";
@@ -186,95 +287,11 @@ int main(int argc, char* argv[])
 
 		//PE file basic information structure
 		packed_file_info basic_info = {0};
-		//Get and save original section count
-		basic_info.number_of_sections = sections.size();
-		//LOCK assembler instruction opcode
-		basic_info.lock_opcode = 0xf0;
-		
-		//Store relative address and size
-		//of packed file original import table
-		basic_info.original_import_directory_rva = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_IMPORT);
-		basic_info.original_import_directory_size = image.get_directory_size(IMAGE_DIRECTORY_ENTRY_IMPORT);
-		//Store original address and size
-		//of packed file original resource directory
-		basic_info.original_resource_directory_rva = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_RESOURCE);
-		basic_info.original_resource_directory_size = image.get_directory_size(IMAGE_DIRECTORY_ENTRY_RESOURCE);
-		//Store relative address and size of
-		//packed file original relocation directory
-		basic_info.original_relocation_directory_rva = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_BASERELOC);
-		basic_info.original_relocation_directory_size = image.get_directory_size(IMAGE_DIRECTORY_ENTRY_BASERELOC);
-		//Store relative address of
-		//original file load configuration directory 
-		basic_info.original_load_config_directory_rva = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
-		//Save its entry point
-		basic_info.original_entry_point = image.get_ep();
-		//Save all packed file sections total virtual size
-		basic_info.total_virtual_size_of_sections = image.get_size_of_image();
-
-		//String to store each section packed_section structure one-by-one
-		std::string packed_sections_info;
-
-		{
-			//Allocate required memory for these structures
-			packed_sections_info.resize(sections.size() * sizeof(packed_section));
-
-			//Raw data of all sections, read from the file and assembled together
-			std::string raw_section_data;
-			//Current section index
-			unsigned long current_section = 0;
-
-			//List all sections
-			for(section_list::const_iterator it = sections.begin(); it != sections.end(); ++it, ++current_section)
-			{
-				//Next section reference
-				const section& s = *it;
-
-				{
-					//Create section information structure
-					//and fill it
-					packed_section& info
-						= reinterpret_cast<packed_section&>(packed_sections_info[current_section * sizeof(packed_section)]);
-
-					//Section characteristics
-					info.characteristics = s.get_characteristics();
-					//File data pointer
-					info.pointer_to_raw_data = s.get_pointer_to_raw_data();
-					//File data size
-					info.size_of_raw_data = s.get_size_of_raw_data();
-					//Relative virtual section address
-					info.virtual_address = s.get_virtual_address();
-					//Virtual section address
-					info.virtual_size = s.get_virtual_size();
-
-					//Copy section name (8 symbols maximum)
-					memset(info.name, 0, sizeof(info.name));
-					memcpy(info.name, s.get_name().c_str(), s.get_name().length());
-				}
-
-				//If section is empty, switch no the next one
-				if(s.get_raw_data().empty())
-					continue;
-
-				//If it is not empty - copy its data to a string
-				//containing all sections data
-				raw_section_data += s.get_raw_data();
-			}
-
-			//If all sections are empty, there is nothing to pack!
-			if(raw_section_data.empty())
-			{
-				std::cout << "All sections of PE file are empty!" << std::endl;
-				return -1;
-			}
-
-			//We will pack both buffers assembled together
-			packed_sections_info += raw_section_data;
-		}
 
 		//New section
 		section new_section;
 		//Name - .rsrc (see description below)
-		new_section.set_name(".rsrc");
+		new_section.set_name(".SPP1");
 		//Available for reading, writing, execution
 		new_section.readable(true).writeable(true).executable(true);
 		//Reference to section raw data
@@ -290,7 +307,7 @@ int main(int argc, char* argv[])
 		boost::scoped_array<lzo_align_t> work_memory(new lzo_align_t[LZO1Z_999_MEM_COMPRESS]);
 		
 		//Unpacked data length
-		lzo_uint src_length = packed_sections_info.size();
+		lzo_uint src_length = file_size;
 		//Save it to our file information structure
 		basic_info.size_of_unpacked_data = src_length;
 		
@@ -305,7 +322,7 @@ int main(int argc, char* argv[])
 		//Perform data compression
 		std::cout << "Packing data..." << std::endl;
 		if(LZO_E_OK !=
-			lzo1z_999_compress(reinterpret_cast<const unsigned char*>(packed_sections_info.data()),
+			lzo1z_999_compress(reinterpret_cast<const unsigned char*>(file_data.data()),
 			src_length,
 			reinterpret_cast<unsigned char*>(&out_buf[0]),
 			&out_length,
@@ -341,44 +358,6 @@ int main(int argc, char* argv[])
 				return -1;
 		}
 		
-		//If the file has TLS, we get information about it
-		std::auto_ptr<tls_info> tls;
-		if(image.has_tls())
-		{
-		  std::cout << "Reading TLS..." << std::endl;
-			tls.reset(new tls_info(get_tls_info(image)));
-		}
-
-		//If a file has exports, get information about them
-		//and list them
-		exported_functions_list exports;
-		export_info exports_info;
-		if(image.has_exports())
-		{
-			std::cout << "Reading exports..." << std::endl;
-			exports = get_exported_functions(image, exports_info);
-		}
-		
-		//If file has Image Load Config, get information about it
-		std::auto_ptr<image_config_info> load_config;
-		if(image.has_config() && rebuild_load_config)
-		{
-			std::cout << "Reading Image Load Config..." << std::endl;
-			
-			try
-			{
-				load_config.reset(new image_config_info(get_image_config(image)));
-			}
-			catch(const pe_exception& e)
-			{
-				image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
-				std::cout << "Error reading load config directory: " << e.what() << std::endl;
-			}
-		}
-		else
-		{
-			image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
-		}
 		
 		{
 			//Get reference to first existing 
@@ -398,104 +377,11 @@ int main(int argc, char* argv[])
 				+ pe_utils::align_up(last_section.get_virtual_size(), image.get_section_alignment())
 				//Subtract first section size
 				- first_section.get_virtual_address();
+			//FIXME: Maybe -f ,I don't know
+			total_virtual_size = pe_utils::align_up<DWORD>( max(total_virtual_size, out_buf.size()), image.get_section_alignment() );
 			
-			//New empty root resources directory
-			resource_directory new_root_dir;
-
-			if(image.has_resources() && repack_resources)
-			{
-				std::cout << "Repacking resources..." << std::endl;
-
-				//Get original file resources (root directory)
-				resource_directory root_dir = get_resources(image);
-				//Wrap original and new resource directory
-				//using helper classes
-				pe_resource_viewer res(root_dir);
-				pe_resource_manager new_res(new_root_dir);
-
-				try
-				{
-					//List all named icon groups
-					//and icon groups with ID
-					pe_resource_viewer::resource_id_list icon_id_list(res.list_resource_ids(pe_resource_viewer::resource_icon_group));
-					pe_resource_viewer::resource_name_list icon_name_list(res.list_resource_names(pe_resource_viewer::resource_icon_group));
-					//Named resources are always placed first, so let's check if they exist
-					if(!icon_name_list.empty())
-					{
-						//Get first icon for first language (by index 0)
-						//If we would have to list languages for specific icon, we could call list_resource_languages
-						//If we would have to get an icon for specific language, we could call get_icon_by_name (overload with language parameter)
-						//Add an icon group to a new resource directory
-						resource_cursor_icon_writer(new_res).add_icon(
-							resource_cursor_icon_reader(res).get_icon_by_name(icon_name_list[0]),
-							icon_name_list[0],
-							res.list_resource_languages(pe_resource_viewer::resource_icon_group, icon_name_list[0]).at(0));
-					}
-					else if(!icon_id_list.empty()) //If there aren't any named icon groups, but groups with ID exist
-					{
-						//Get first icon for first language (by index 0)
-						//If we would have to list languages for specified icon, we could call list_resource_languages
-						//If we would have to get icon for certain language, we could call get_icon_by_id_lang
-						//Add an icon group to a new resource directory
-						resource_cursor_icon_writer(new_res).add_icon(
-							resource_cursor_icon_reader(res).get_icon_by_id(icon_id_list[0]),
-							icon_id_list[0],
-							res.list_resource_languages(pe_resource_viewer::resource_icon_group, icon_id_list[0]).at(0));
-					}
-				}
-				catch(const pe_exception&)
-				{
-					//If there is any issue with resources, for example, missing icons,
-					//do nothing
-				}
-
-				try
-				{
-					//List manifests with ID
-					pe_resource_viewer::resource_id_list manifest_id_list(res.list_resource_ids(pe_resource_viewer::resource_manifest));
-					if(!manifest_id_list.empty()) //If manifest exists
-					{
-						//Get first manifest for first language (by index 0)
-						//Add manifest to a new resource group
-						new_res.add_resource(
-							res.get_resource_data_by_id(pe_resource_viewer::resource_manifest, manifest_id_list[0]).get_data(),
-							pe_resource_viewer::resource_manifest,
-							manifest_id_list[0],
-							res.list_resource_languages(pe_resource_viewer::resource_manifest, manifest_id_list[0]).at(0)
-							);
-					}
-				}
-				catch(const pe_exception&)
-				{
-					//If there is any resource error,
-					//do nothing
-				}
-
-				try
-				{
-					//Get list of version information structures with ID 
-					pe_resource_viewer::resource_id_list version_info_id_list(res.list_resource_ids(pe_resource_viewer::resource_version));
-					if(!version_info_id_list.empty()) //If version information exists
-					{
-						//Get first version information structure for first language (by index 0)
-						//Add version information to a new resource directory
-						new_res.add_resource(
-							res.get_resource_data_by_id(pe_resource_viewer::resource_version, version_info_id_list[0]).get_data(),
-							pe_resource_viewer::resource_version,
-							version_info_id_list[0],
-							res.list_resource_languages(pe_resource_viewer::resource_version, version_info_id_list[0]).at(0)
-							);
-					}
-				}
-				catch(const pe_exception&)
-				{
-					//If there is any resource error,
-					//do nothing
-				}
-			}
-
-			
-			//Delete all PE file sections
+			//Delete all PE file sections, except resource section
+			//FIXME : resource section
 			image.get_image_sections().clear();
 
 			//Change file alignment
@@ -547,54 +433,21 @@ int main(int argc, char* argv[])
 			settings.save_iat_and_original_iat_rvas(true, true);
 			//Place imports right after packed data end
 			settings.set_offset_from_section_start(added_section.get_raw_data().size());
-			//If we have resources to build,
 			//disable automatic section stripping
 			//after adding imports to it
-			if(!new_root_dir.get_entry_list().empty())
-				settings.enable_auto_strip_last_section(false);
+			settings.enable_auto_strip_last_section(false);
 
 			//Rebuild imports
 			rebuild_imports(image, imports, added_section, settings);
-			
-			//Rebuild resources if they exist
-			if(!new_root_dir.get_entry_list().empty())
-				rebuild_resources(image, new_root_dir, added_section, added_section.get_raw_data().size());
-			
-			//If the file has TLS
-			if(tls.get())
-			{
-				//Pointer to our packer information structure
-				//This structure is in the beginning of new added section,
-				//we added it a bit earlier
-				packed_file_info* info = reinterpret_cast<packed_file_info*>(&added_section.get_raw_data()[0]);
-
-				//Write original TLS
-				//relative virtual address
-				info->original_tls_index_rva = tls->get_index_rva();
-
-				//If we have TLS callbacks, write
-				//relative virtual address of their array in original file
-				//to structure
-				if(!tls->get_tls_callbacks().empty())
-					info->original_rva_of_tls_callbacks = tls->get_callbacks_rva();
-
-				//Now the relative virtual address of TLS index
-				//will change - we will make the loader to write it to tls_index field
-				//of packed_file_info structure
-				tls->set_index_rva(pe_base::rva_from_section_offset(added_section, offsetof(packed_file_info, tls_index)));
-			}
+					
 		}
 		
-		//It is necessary to reserve place for
-		//original TLS callbacks
-		//plus one cell for zero DWORD
-		DWORD first_callback_offset = 0;
 		
 		{
-			//New section 
+			//New section for unpacker code etc.
 			section unpacker_section;
 			//name - coderpub
-			unpacker_section.set_name("coderpub");
+			unpacker_section.set_name(".SPP2"); //Simple PE Packer
 			//Available for reading and execution 
 			unpacker_section.readable(true).executable(true).writeable(true);
 			
@@ -606,10 +459,6 @@ int main(int argc, char* argv[])
 				//This code is stored in autogenerated file
 				//unpacker.h, which we included in main.cpp
 				unpacker_section_data = std::string(reinterpret_cast<const char*>(unpacker_data), sizeof(unpacker_data));
-				//Write image load address 
-				//to required offsets
-				*reinterpret_cast<DWORD*>(&unpacker_section_data[original_image_base_offset]) = image.get_image_base_32();
-				*reinterpret_cast<DWORD*>(&unpacker_section_data[original_image_base_no_fixup_offset]) = image.get_image_base_32();
 				//and first packed file section virtual address,
 				//which stores data to unpack and information about them
 				//At the beginning of this section, as you remember, 
@@ -620,7 +469,6 @@ int main(int argc, char* argv[])
 			//Add this section too
 			section& unpacker_added_section = image.add_section(unpacker_section);
 			
-			if(tls.get() || image.has_exports() || image.has_reloc() || load_config.get())
 			{
 				//Change the unpacker section data size precisely
 				//by the number of bytes in the unpacker body
@@ -628,210 +476,34 @@ int main(int argc, char* argv[])
 				//PE library)
 				unpacker_added_section.get_raw_data().resize(sizeof(unpacker_data));
 			}
-			
-			//If file has TLS
-			if(tls.get())
-			{
-				std::cout << "Rebuilding TLS..." << std::endl;
-
-				//Reference to unpacker raw section data
-				//Only unpacker body is located there yet
-				std::string& data = unpacker_added_section.get_raw_data();
-
-				//Calculate the position to write IMAGE_TLS_DIRECTORY32 structure
-				DWORD directory_pos = data.size();
-				//Allocate space for this structure
-				//sizeof(DWORD) is required for alignment, because
-				//IMAGE_TLS_DIRECTORY32 must be aligned to 4-byte boundary
-				data.resize(data.size() + sizeof(IMAGE_TLS_DIRECTORY32) + sizeof(DWORD));
-
-				//If TLS has callbacks...
-				if(!tls->get_tls_callbacks().empty())
-				{
-					//It is necessary to reserve memory
-					//for original TLS callback addresses
-					//Plus 1 cell for null DWORD
-					first_callback_offset = data.size();
-					data.resize(data.size() + sizeof(DWORD) * (tls->get_tls_callbacks().size() + 1));
-
-					//First callback will be our empty one (ret 0xC),
-					//Write its address
-					*reinterpret_cast<DWORD*>(&data[first_callback_offset]) =
-						image.rva_to_va_32(pe_base::rva_from_section_offset(unpacker_added_section, empty_tls_callback_offset));
-
-					//Write relative virtual address
-					//of new TLS callbacks table
-					tls->set_callbacks_rva(pe_base::rva_from_section_offset(unpacker_added_section, first_callback_offset));
-
-					//Now write new callbacks table relative address
-					//to packed_file_info structure, which is placed at
-					//the beginning of first section
-					reinterpret_cast<packed_file_info*>(&image.get_image_sections().at(0).get_raw_data()[0])->new_rva_of_tls_callbacks = tls->get_callbacks_rva();
-				}
-				else
-				{
-					//If no callbacks exist, let's set address to null just in case
-					tls->set_callbacks_rva(0);
-				}
-
-				//Clean up callback array, we don't need them anymore
-				//We created them manually
-				tls->clear_tls_callbacks();
-
-				//Set new relative address
-				//of data used to initialize thread local memory
-				tls->set_raw_data_start_rva(pe_base::rva_from_section_offset(unpacker_added_section, data.size()));
-				//Recalculate the address of these data end
-				tls->recalc_raw_data_end_rva();
-
-				//Rebuild TLS
-				//Notify the rebuilder, that it is not needed to write data and callbacks
-				//We do this manually (callbacks are already written to the right places)
-				//Also we indicate that we don't need to strip null bytes at the end of the section
-				rebuild_tls(image, *tls, unpacker_added_section, directory_pos, false, false, tls_data_expand_raw, true, false);
-
-				//Add data used to initialize local thread memory to the section
-				unpacker_added_section.get_raw_data() += tls->get_raw_data();
-				//Now set "coderpub" section virtual size
-				//taking into account SizeOfZeroFill of TLS field
-				image.set_section_virtual_size(unpacker_added_section, data.size() + tls->get_size_of_zero_fill());
-				//At last, strip unnecessary null bytes at the end of the section
-				if(!image.has_reloc() && !image.has_exports() && !load_config.get())
-					pe_utils::strip_nullbytes(unpacker_added_section.get_raw_data());
-				//and recalculate its sizes (raw and virtual)
-				image.prepare_section(unpacker_added_section);
-			}
-			
-			
+						
 			//Set new entry point - now it points to
 			//the beginning of unpacker
 			image.set_ep(image.rva_from_section_offset(unpacker_added_section, 0));
+			std::string& unpacker_section_data = unpacker_added_section.get_raw_data();
+			//Write image load address 
+			//to required offsets
+			*reinterpret_cast<DWORD*>(&unpacker_section_data[original_image_base_offset]) = image.get_ep() + offset_of_ep;
 		}
 
-		if(load_config.get())
-		{
-			std::cout << "Repacking load configuration..." << std::endl;
-
-			section& unpacker_section = image.get_image_sections().at(1);
-
-			//Zero Lock prefix address table
-			load_config->clear_lock_prefix_list();
-			load_config->add_lock_prefix_rva(pe_base::rva_from_section_offset(image.get_image_sections().at(0), offsetof(packed_file_info, lock_opcode)));
-
-			//Rebuild load configuration directory and place it to "coderpub" section
-			//Rerbuild SE Handler table automatically, but do not create Lock prefix table
-			rebuild_image_config(image, *load_config, unpacker_section, unpacker_section.get_raw_data().size(), true, true, true, !image.has_reloc() && !image.has_exports());
-		}
-		
-		if(image.has_reloc())
-		{
-			std::cout << "Creating relocations..." << std::endl;
-
-			//Create relocation table list and a table
-			relocation_table_list reloc_tables;
-
-			section& unpacker_section = image.get_image_sections().at(1);
-			
-			{
-				relocation_table table;
-				//Set relocation table virtual address
-				//It will be equal to the relative virtual address of the second added
-				//section, because it stores the unpacker code with the variable to fix
-				table.set_rva(unpacker_section.get_virtual_address());
-
-				//Add relocation by original_image_base_offset offset from
-				//parameters.h file of the unpacker
-				table.add_relocation(relocation_entry(original_image_base_offset, IMAGE_REL_BASED_HIGHLOW));
-
-				//Add the table to the list
-				reloc_tables.push_back(table);
-			}
-			
-			//If a file has TLS
-			if(tls.get())
-			{
-				//Calculate offset to TLS structure
-				//relative to the beginning of second section
-				DWORD tls_directory_offset = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_TLS)
-					- image.section_from_directory(IMAGE_DIRECTORY_ENTRY_TLS).get_virtual_address();
-
-				//Create new relocation table, as TLS table can be too far away
-				//from original_image_base_offset. This can lead to relocation table addresses overflow
-				relocation_table table;
-				table.set_rva(image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_TLS));
-				//Add relocations for StartAddressOfRawData,
-				//EndAddressOfRawData and AddressOfIndex fields
-				//These fields are always not null
-				table.add_relocation(relocation_entry(static_cast<WORD>(
-					offsetof(IMAGE_TLS_DIRECTORY32, StartAddressOfRawData)), IMAGE_REL_BASED_HIGHLOW));
-				table.add_relocation(relocation_entry(static_cast<WORD>(
-					offsetof(IMAGE_TLS_DIRECTORY32, EndAddressOfRawData)), IMAGE_REL_BASED_HIGHLOW));
-				table.add_relocation(relocation_entry(static_cast<WORD>(
-					offsetof(IMAGE_TLS_DIRECTORY32, AddressOfIndex)), IMAGE_REL_BASED_HIGHLOW));
-
-				//If TLS callbacks exist
-				if(first_callback_offset)
-				{
-					//Add relocations for AddressOfCallBacks field
-					//and for our empty callback address
-					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_TLS_DIRECTORY32, AddressOfCallBacks)), IMAGE_REL_BASED_HIGHLOW));
-					table.add_relocation(relocation_entry(static_cast<WORD>(tls->get_callbacks_rva() - table.get_rva()), IMAGE_REL_BASED_HIGHLOW));
-				}
-				
-				reloc_tables.push_back(table);
-			}
-			
-			if(load_config.get())
-			{
-				//If image has IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG, then we need to add necessary relocations for it,
-				//because it is used by loader
-				DWORD config_directory_offset = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG)
-					- image.section_from_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG).get_virtual_address();
-
-				//Create new relocation table, as load configuration table can be too far away
-				//from original_image_base_offset. This can lead to relocation table addresses overflow
-				relocation_table table;
-				table.set_rva(image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG));
-				
-				if(load_config->get_security_cookie_va())
-					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, SecurityCookie)), IMAGE_REL_BASED_HIGHLOW));
-
-				if(load_config->get_se_handler_table_va())
-					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, SEHandlerTable)), IMAGE_REL_BASED_HIGHLOW));
-
-				table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, LockPrefixTable)), IMAGE_REL_BASED_HIGHLOW));
-				reloc_tables.push_back(table);
-			}
-
-			//Rebuild relocations, placing them at the end
-			//of section with the unpacker code
-			rebuild_relocations(image, reloc_tables, unpacker_section, unpacker_section.get_raw_data().size(), true, !image.has_exports());
-		}
-		
-		if(image.has_exports())
-		{
-			std::cout << "Repacking exports..." << std::endl;
-
-			section& unpacker_section = image.get_image_sections().at(1);
-
-			//Rebuild exports and place them to "coderpub" section
-			rebuild_exports(image, exports_info, exports, unpacker_section, unpacker_section.get_raw_data().size(), true);
-		}
 		
 		//Delete all often used directories
 		//we will return them further
 		//and manage correctly, but that way for now
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT);
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_IAT);
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_SECURITY);
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_DEBUG);
-
-		//Strip directory table, removing all empty directories
-		//Not completely, but to minimum of 12 elements, because the
-		//original file can have first 12 ones in use
-		//image.strip_data_directories(16 - 4); //Commented because of incompatibility with Windows XP
-		//Remove stub from header, if there was any
-		image.strip_stub_overlay();
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXPORT);			//0
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_RESOURCE);			//2
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXCEPTION);		//3
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_SECURITY);			//4
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BASERELOC);		//5
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_DEBUG);			//6
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_ARCHITECTURE);		//7
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_GLOBALPTR);		//8
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_TLS);				//9
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);		//10
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT);		//11
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_IAT);				//12
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT);		//13
+		image.remove_directory(IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR);	//14
 
 		std::string base_file_name;
 

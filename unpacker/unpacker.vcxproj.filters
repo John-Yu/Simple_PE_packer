@@ -44,7 +44,7 @@
     <ClInclude Include="lzo_ptr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="miniacc.h">
+    <ClInclude Include="lzo_supp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
