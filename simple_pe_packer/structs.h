@@ -19,6 +19,11 @@ struct packed_file_info
 	DWORD size_of_packed_data; //Size of packed data
 	DWORD size_of_unpacked_data; //Size of original data
 	
+	DWORD tls_index; //Loader writes TLS index here
+	DWORD original_tls_index_rva; //Relative TLS index address in original file
+	DWORD new_rva_of_tls_callbacks; //Relative TLS callback array address in file after our modification									
+	DWORD original_rva_of_tls_callbacks; //Original TLS callback array address in original file
+
 	DWORD load_library_a; //LoadLibraryA procedure address from kernel32.dll
 	DWORD get_proc_address; //GetProcAddress procedure address from kernel32.dll
 	DWORD free_library; //FreeLibrary procedure address from kernel32.dll

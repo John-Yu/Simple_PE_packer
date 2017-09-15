@@ -12,17 +12,25 @@ __declspec(thread) char c[128];
 void __stdcall tls_callback(void*, unsigned long reason, void*)
 {
 	if(reason == DLL_PROCESS_ATTACH)
-		MessageBoxA(0, "Process Callback!", "Process Callback!", 0);
+		MessageBoxA(0, "1 Process ATTACH Callback !", "Process Callback!",  0);
 	else if(reason == DLL_THREAD_ATTACH)
-		MessageBoxA(0, "Thread Callback!", "Thread Callback!", 0);
+		MessageBoxA(0, "1 Thread ATTACH Callback !", "Thread Callback!",  0);
+	else if (reason == DLL_PROCESS_DETACH)
+		MessageBoxA(0, "1 Process DETACH Callback !", "Process Callback!",  0);
+	else if (reason == DLL_THREAD_DETACH)
+		MessageBoxA(0, "1 Thread DETACH Callback !", "Thread Callback!",  0);
 }
 
 void __stdcall tls_callback2(void*, unsigned long reason, void*)
 {
-	if(reason == DLL_PROCESS_ATTACH)
-		MessageBoxA(0, "Process Callback 2!", "Process Callback 2!", 0);
-	else if(reason == DLL_THREAD_ATTACH)
-		MessageBoxA(0, "Thread Callback 2!", "Thread Callback 2!", 0);
+	if (reason == DLL_PROCESS_ATTACH)
+		MessageBoxA(0, "2 Process ATTACH Callback !", "Process Callback!", 0);
+	else if (reason == DLL_THREAD_ATTACH)
+		MessageBoxA(0, "2 Thread ATTACH Callback !", "Thread Callback!", 0);
+	else if (reason == DLL_PROCESS_DETACH)
+		MessageBoxA(0, "2 Process DETACH Callback !", "Process Callback!", 0);
+	else if (reason == DLL_THREAD_DETACH)
+		MessageBoxA(0, "2 Thread DETACH Callback !", "Thread Callback!", 0);
 }
 
 //Thread procedure (empty, just to call callbacks)

@@ -12,6 +12,9 @@ extern "C" void __declspec(naked) unpacker_main()
 	//Create prologue manually
 	__asm
 	{
+		jmp next;
+		ret 0xC;
+	next:
 		push ebp;
 		mov ebp, esp;
 		sub esp, 0x200;
@@ -70,8 +73,6 @@ next2:
 
 next3:
 	}
-	//Adjust image_base
-	image_base = reinterpret_cast<DWORD>(was_unpacked) - image_base;
 	//Get pointer to structure with information
 	//carefully prepared by packer
 	const packed_file_info* info;
@@ -140,6 +141,11 @@ next3:
 	//Get VirtualFree function address
 	virtual_free_func virtual_free;
 	virtual_free = reinterpret_cast<virtual_free_func>(get_proc_address(kernel32_dll, buf));
+
+	//Copy all packed_file_info structure fields, because
+	//we will need them further, but we will overwrite the structure at "info" pointer soon
+	packed_file_info info_copy;
+	memcpy(&info_copy, info, sizeof(info_copy));
 
 	//Pointer to the memory 
 	//to store unpacked data
@@ -361,8 +367,11 @@ next3:
 	//Pointer to TLS directory
 	IMAGE_DATA_DIRECTORY* tls_dir;
 	tls_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_TLS);
+	//Copy TLS index
+	if (info_copy.original_tls_index_rva)
+		*reinterpret_cast<DWORD*>(info_copy.original_tls_index_rva + image_base) = info_copy.tls_index;
 
-	if(tls_dir->VirtualAddress)
+	if(info_copy.original_rva_of_tls_callbacks)
 	{
 		//*
 		PIMAGE_TLS_DIRECTORY tls;
@@ -370,8 +379,25 @@ next3:
 		//If TLS has callbacks
 		PIMAGE_TLS_CALLBACK* tls_callback_address;
 		//Pointer to first callback of an original array
-		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(tls->AddressOfCallBacks);
+		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.original_rva_of_tls_callbacks + image_base);
+		//Offset relative to the beginning of original TLS callbacks array
+		DWORD offset = 0;
+		while (true)
+		{
+			//If callback is null - this is the end of array
+			if (!*tls_callback_address)
+				break;
 
+			//Copy the address of original one
+			//to our callbacks array
+			*reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base + offset) = *tls_callback_address;
+
+			//Move to next callback
+			++tls_callback_address;
+			offset += sizeof(DWORD);
+		}
+		//Return to the beginning of the new array
+		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base);
 		while(true)
 		{
 			//If callback is null - this is the end of array

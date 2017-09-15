@@ -35,11 +35,11 @@ using namespace pe_bliss;
 #endif
 #else
 #ifdef _DEBUG
-#pragma comment(lib, "../../pe_bliss_1.0.0/x64/Debug/pe_bliss.lib")
-#pragma comment(lib, "../x64/Debug/lzo-2.06.lib")
+#pragma comment(lib, "../pelib/x64/Debug/pe_bliss.lib")
+#pragma comment(lib, "../x64/Debug/lzo-2.10.lib")
 #else
-#pragma comment(lib, "../../pe_bliss_1.0.0/x64/Release/pe_bliss.lib")
-#pragma comment(lib, "../x64/Release/lzo-2.06.lib")
+#pragma comment(lib, "../pelib/x64/Release/pe_bliss.lib")
+#pragma comment(lib, "../x64/Release/lzo-2.10.lib")
 #endif
 #endif
 
@@ -363,7 +363,23 @@ int main(int argc, char* argv[])
 				return -1;
 		}
 		
-		
+		//If the file has TLS, we get information about it
+		std::unique_ptr<tls_info> tls;
+		if (image.has_tls())
+		{
+			std::cout << "Reading TLS..." << std::endl;
+			tls.reset(new tls_info(get_tls_info(image)));
+		}
+		//If a file has exports, get information about them
+		//and list them
+		exported_functions_list exports;
+		export_info exports_info;
+		if (image.has_exports())
+		{
+			std::cout << "Reading exports..." << std::endl;
+			exports = get_exported_functions(image, exports_info);
+		}
+
 		{
 			//Get reference to first existing 
 			//PE file section
@@ -448,10 +464,37 @@ int main(int argc, char* argv[])
 
 			//Rebuild imports
 			rebuild_imports(image, imports, added_section, settings);
-					
+
+			//If the file has TLS
+			if (tls.get())
+			{
+				//Pointer to our packer information structure
+				//This structure is in the beginning of new added section,
+				//we added it a bit earlier
+				packed_file_info* info = reinterpret_cast<packed_file_info*>(&added_section.get_raw_data()[0]);
+
+				//Write original TLS
+				//relative virtual address
+				info->original_tls_index_rva = tls->get_index_rva();
+
+				//If we have TLS callbacks, write
+				//relative virtual address of their array in original file
+				//to structure
+				if (!tls->get_tls_callbacks().empty())
+					info->original_rva_of_tls_callbacks = tls->get_callbacks_rva();
+
+				//Now the relative virtual address of TLS index
+				//will change - we will make the loader to write it to tls_index field
+				//of packed_file_info structure
+				tls->set_index_rva(pe_base::rva_from_section_offset(added_section, offsetof(packed_file_info, tls_index)));
+			}					
 		}
 		
-		
+		//It is necessary to reserve place for
+		//original TLS callbacks
+		//plus one cell for zero DWORD
+		DWORD first_callback_offset = 0;
+
 		{
 			//New section for unpacker code etc.
 			section unpacker_section;
@@ -473,6 +516,9 @@ int main(int argc, char* argv[])
 				//At the beginning of this section, as you remember, 
 				//packed_file_info structure is stored
 				*reinterpret_cast<DWORD*>(&unpacker_section_data[rva_of_first_section_offset]) = image.get_image_sections().at(0).get_virtual_address();
+				//Write image load address 
+				//to required offsets
+				*reinterpret_cast<DWORD*>(&unpacker_section_data[original_image_base_offset]) = image.get_image_base_32();
 			}
 
 			//Add this section too
@@ -485,29 +531,177 @@ int main(int argc, char* argv[])
 				//PE library)
 				unpacker_added_section.get_raw_data().resize(sizeof(unpacker_data));
 			}
+			//If file has TLS
+			if (tls.get())
+			{
+				std::cout << "Rebuilding TLS..." << std::endl;
+
+				//Reference to unpacker raw section data
+				//Only unpacker body is located there yet
+				std::string& data = unpacker_added_section.get_raw_data();
+
+				//Calculate the position to write IMAGE_TLS_DIRECTORY32 structure
+				DWORD directory_pos = data.size();
+				//Allocate space for this structure
+				//sizeof(DWORD) is required for alignment, because
+				//IMAGE_TLS_DIRECTORY32 must be aligned to 4-byte boundary
+				data.resize(data.size() + sizeof(IMAGE_TLS_DIRECTORY32) + sizeof(DWORD));
+
+				//If TLS has callbacks...
+				if (!tls->get_tls_callbacks().empty())
+				{
+					size_t num_callback = tls->get_tls_callbacks().size();
+					//It is necessary to reserve memory
+					//for original TLS callback addresses
+					//Plus 1 cell for null DWORD
+					first_callback_offset = data.size();
+					data.resize(data.size() + sizeof(DWORD) * (num_callback + 1));
+
+					//First callback will be our empty one (ret 0xC),
+					//Write its address, FIXME: if have more than one callback?
+					uint32_t empty_tls_callback = image.rva_to_va_32(pe_base::rva_from_section_offset(unpacker_added_section, empty_tls_callback_offset));
+					DWORD* new_callback = reinterpret_cast<DWORD*>(&data[first_callback_offset]);
+					for (size_t i = 0; i < num_callback; i++, ++new_callback)
+					{
+						*new_callback = empty_tls_callback;
+					}
+					*new_callback = 0;
+
+					//Write relative virtual address
+					//of new TLS callbacks table
+					tls->set_callbacks_rva(pe_base::rva_from_section_offset(unpacker_added_section, first_callback_offset));
+
+					//Now write new callbacks table relative address
+					//to packed_file_info structure, which is placed at
+					//the beginning of first section
+					reinterpret_cast<packed_file_info*>(&image.get_image_sections().at(0).get_raw_data()[0])->new_rva_of_tls_callbacks = tls->get_callbacks_rva();
+				}
+				else
+				{
+					//If no callbacks exist, let's set address to null just in case
+					tls->set_callbacks_rva(0);
+				}
+
+				//Clean up callback array, we don't need them anymore
+				//We created them manually
+				tls->clear_tls_callbacks();
+
+				//Set new relative address
+				//of data used to initialize thread local memory
+				tls->set_raw_data_start_rva(pe_base::rva_from_section_offset(unpacker_added_section, data.size()));
+				//Recalculate the address of these data end
+				tls->recalc_raw_data_end_rva();
+
+				//Rebuild TLS
+				//Notify the rebuilder, that it is not needed to write data and callbacks
+				//We do this manually (callbacks are already written to the right places)
+				//Also we indicate that we don't need to strip null bytes at the end of the section
+				rebuild_tls(image, *tls, unpacker_added_section, directory_pos, false, false, tls_data_expand_raw, true, false);
+
+				//Add data used to initialize local thread memory to the section
+				unpacker_added_section.get_raw_data() += tls->get_raw_data();
+				//Now set "coderpub" section virtual size
+				//taking into account SizeOfZeroFill of TLS field
+				image.set_section_virtual_size(unpacker_added_section, data.size() + tls->get_size_of_zero_fill());
+				//At last, strip unnecessary null bytes at the end of the section
+				//if (!image.has_reloc() && !image.has_exports() && !load_config.get())
+					//pe_utils::strip_nullbytes(unpacker_added_section.get_raw_data());
+				//and recalculate its sizes (raw and virtual)
+				image.prepare_section(unpacker_added_section);
+			}
+
 						
 			//Set new entry point - now it points to
 			//the beginning of unpacker
 			image.set_ep(image.rva_from_section_offset(unpacker_added_section, 0));
 			std::string& unpacker_section_data = unpacker_added_section.get_raw_data();
-			//Write image load address 
-			//to required offsets
-			*reinterpret_cast<DWORD*>(&unpacker_section_data[original_image_base_offset]) = image.get_ep() + offset_of_ep;
 		}
 
-		
+		if (image.has_reloc())
+		{
+			std::cout << "Creating relocations..." << std::endl;
+
+			//Create relocation table list and a table
+			relocation_table_list reloc_tables;
+
+			section& unpacker_section = image.get_image_sections().at(1);
+
+			{
+				relocation_table table;
+				//Set relocation table virtual address
+				//It will be equal to the relative virtual address of the second added
+				//section, because it stores the unpacker code with the variable to fix
+				table.set_rva(unpacker_section.get_virtual_address());
+
+				//Add relocation by original_image_base_offset offset from
+				//parameters.h file of the unpacker
+				table.add_relocation(relocation_entry(original_image_base_offset, IMAGE_REL_BASED_HIGHLOW));
+
+				//Add the table to the list
+				reloc_tables.push_back(table);
+			}
+
+			//If a file has TLS
+			if (tls.get())
+			{
+				//Calculate offset to TLS structure
+				//relative to the beginning of second section
+				DWORD tls_directory_offset = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_TLS)
+					- image.section_from_directory(IMAGE_DIRECTORY_ENTRY_TLS).get_virtual_address();
+
+				//Create new relocation table, as TLS table can be too far away
+				//from original_image_base_offset. This can lead to relocation table addresses overflow
+				relocation_table table;
+				table.set_rva(image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_TLS));
+				//Add relocations for StartAddressOfRawData,
+				//EndAddressOfRawData and AddressOfIndex fields
+				//These fields are always not null
+				table.add_relocation(relocation_entry(static_cast<WORD>(
+					offsetof(IMAGE_TLS_DIRECTORY32, StartAddressOfRawData)), IMAGE_REL_BASED_HIGHLOW));
+				table.add_relocation(relocation_entry(static_cast<WORD>(
+					offsetof(IMAGE_TLS_DIRECTORY32, EndAddressOfRawData)), IMAGE_REL_BASED_HIGHLOW));
+				table.add_relocation(relocation_entry(static_cast<WORD>(
+					offsetof(IMAGE_TLS_DIRECTORY32, AddressOfIndex)), IMAGE_REL_BASED_HIGHLOW));
+
+				//If TLS callbacks exist
+				if (first_callback_offset)
+				{
+					//Add relocations for AddressOfCallBacks field
+					//and for our empty callback address
+					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_TLS_DIRECTORY32, AddressOfCallBacks)), IMAGE_REL_BASED_HIGHLOW));
+					table.add_relocation(relocation_entry(static_cast<WORD>(tls->get_callbacks_rva() - table.get_rva()), IMAGE_REL_BASED_HIGHLOW));
+				}
+
+				reloc_tables.push_back(table);
+			}
+
+			//Rebuild relocations, placing them at the end
+			//of section with the unpacker code
+			rebuild_relocations(image, reloc_tables, unpacker_section, unpacker_section.get_raw_data().size(), true, !image.has_exports());
+		}
+		//
+		if (image.has_exports())
+		{
+			std::cout << "Repacking exports..." << std::endl;
+
+			section& unpacker_section = image.get_image_sections().at(1);
+
+			//Rebuild exports and place them to "coderpub" section
+			rebuild_exports(image, exports_info, exports, unpacker_section, unpacker_section.get_raw_data().size(), true);
+		}
+
 		//Delete all often used directories
 		//we will return them further
 		//and manage correctly, but that way for now
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXPORT);			//0
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXPORT);			//0
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_RESOURCE);			//2
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXCEPTION);		//3
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_SECURITY);			//4
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BASERELOC);		//5
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_BASERELOC);		//5
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_DEBUG);			//6
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_ARCHITECTURE);		//7
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_GLOBALPTR);		//8
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_TLS);				//9
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_TLS);				//9
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);		//10
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT);		//11
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_IAT);				//12
