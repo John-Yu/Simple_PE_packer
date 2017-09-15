@@ -19,6 +19,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "unpacker_converter", "unpac
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lzo-2.10", "lzo-2.10\lzo_2.10.vcxproj", "{44B4D7BB-DC73-4639-9DA3-496E45658B83}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "reloc_test", "reloc_test\reloc_test.vcxproj", "{8E2CDD22-2C94-4E71-B280-31373A40D267}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -72,6 +74,17 @@ Global
 		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|Win32.Build.0 = Release|Win32
 		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|x64.ActiveCfg = Release|x64
 		{44B4D7BB-DC73-4639-9DA3-496E45658B83}.ReleaseDecompressor|x64.Build.0 = Release|x64
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Debug|Win32.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Debug|Win32.Build.0 = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Debug|x64.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Release|Win32.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Release|Win32.Build.0 = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Release|x64.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.Release|x64.Build.0 = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.ReleaseDecompressor|Win32.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.ReleaseDecompressor|Win32.Build.0 = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.ReleaseDecompressor|x64.ActiveCfg = Debug|Win32
+		{8E2CDD22-2C94-4E71-B280-31373A40D267}.ReleaseDecompressor|x64.Build.0 = Debug|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

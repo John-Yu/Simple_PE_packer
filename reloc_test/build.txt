@@ -1,0 +1,5 @@
+ulink.exe -B- -b:0x7F000000 main.obj,main.exe,,user32.lib
+note: 
+1. main.obj will be debug version 
+2. some system libs such as libcmtd.lib,libcpmtd.lib,libcrtd.lib etc. will put in same directory.
+3. UniLink version is V1.09 [Beta] Build 11.05
