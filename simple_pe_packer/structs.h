@@ -21,6 +21,7 @@ struct packed_file_info
 	
 	DWORD load_library_a; //LoadLibraryA procedure address from kernel32.dll
 	DWORD get_proc_address; //GetProcAddress procedure address from kernel32.dll
+	DWORD free_library; //FreeLibrary procedure address from kernel32.dll
 	DWORD end_of_import_address_table; //IAT end
 };
 #pragma pack(pop)

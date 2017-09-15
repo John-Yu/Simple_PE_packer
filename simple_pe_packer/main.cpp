@@ -19,6 +19,11 @@
 
 using namespace pe_bliss;
 
+#if _MSC_VER
+// C4244: conversion from 'std::streamoff' to 'uint32_t', possible loss of data.
+#pragma warning(disable: 4244)
+#endif
+
 //PE and LZO libraries linking directives
 #ifndef _M_X64
 #ifdef _DEBUG
@@ -407,6 +412,10 @@ int main(int argc, char* argv[])
 
 			//And second function
 			func.set_name("GetProcAddress");
+			kernel32.add_import(func); //Add it, too
+									   
+			//And third function
+			func.set_name("FreeLibrary");
 			kernel32.add_import(func); //Add it, too
 
 			//Get load_library_a field relative address (RVA)

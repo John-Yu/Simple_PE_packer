@@ -4,6 +4,7 @@
 //Unpacking algorithm
 #include "lzo/lzo1z.h"
 
+
 //Create function without prologue and epilogue
 extern "C" void __declspec(naked) unpacker_main()
 //extern "C" void  unpacker_main()  //only for check the stack size
@@ -81,14 +82,16 @@ next3:
 	//Two LoadLibraryA and GetProcAddress function prototypes typedefs 
 	typedef HMODULE (__stdcall* load_library_a_func)(const char* library_name);
 	typedef INT_PTR (__stdcall* get_proc_address_func)(HMODULE dll, const char* func_name);
+	typedef BOOL (__stdcall* free_library_func)(HMODULE hLibModule);
 
 	//Read their addresses from packed_file_info structure
 	//Loader puts them there for us
 	load_library_a_func load_library_a;
 	get_proc_address_func get_proc_address;
+	free_library_func free_library;
 	load_library_a = reinterpret_cast<load_library_a_func>(info->load_library_a);
 	get_proc_address = reinterpret_cast<get_proc_address_func>(info->get_proc_address);
-	
+	free_library = reinterpret_cast<free_library_func>(info->free_library);
 	
 	//Create buffer on stack
 	char buf[32];
@@ -137,7 +140,7 @@ next3:
 	//Get VirtualFree function address
 	virtual_free_func virtual_free;
 	virtual_free = reinterpret_cast<virtual_free_func>(get_proc_address(kernel32_dll, buf));
-	
+
 	//Pointer to the memory 
 	//to store unpacked data
 	LPVOID unpacked_mem;
@@ -314,8 +317,8 @@ next3:
 	}
 	//*
 	// adjust base address of imported data
-	DWORD locationDelta;
-	locationDelta = (image_base - nt_headers->OptionalHeader.ImageBase);
+	ptrdiff_t locationDelta;
+	locationDelta = (ptrdiff_t)(image_base - nt_headers->OptionalHeader.ImageBase);
 
 	// Need relocation
 	if (locationDelta)
@@ -387,6 +390,10 @@ next3:
 	
 	//Restore headers memory attributes
 	virtual_protect(reinterpret_cast<LPVOID>(image_base), rva_of_first_section, old_protect, &old_protect);
+
+	//Free library before leave
+	free_library(kernel32_dll);
+
 
 	//Create epilogue manually
 	_asm
