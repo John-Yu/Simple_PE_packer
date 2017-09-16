@@ -4,7 +4,6 @@
 //Unpacking algorithm
 #include "lzo/lzo1z.h"
 
-
 //Create function without prologue and epilogue
 extern "C" void __declspec(naked) unpacker_main()
 //extern "C" void  unpacker_main()  //only for check the stack size
@@ -246,7 +245,7 @@ next3:
 	//to memory, where section headers are stored
 	memcpy(reinterpret_cast<void*>(offset_to_section_headers), reinterpret_cast<void*>(offset_to_section_headers_org), sizeof(IMAGE_SECTION_HEADER) * (file_header->NumberOfSections));
 	
-	//List all the sections again
+	//Load all the sections data
 	for(int i = 0; i < file_header->NumberOfSections; ++i, ++section_header)
 	{
 		//Copying sections data to the place in memory,
@@ -255,6 +254,7 @@ next3:
 			reinterpret_cast<char*>(unpacked_mem) + section_header->PointerToRawData,
 			section_header->SizeOfRawData);
 	}
+
 	//Size of directory table
 	DWORD size_of_directories;
 	size_of_directories = sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
@@ -266,7 +266,7 @@ next3:
 	//of directory table beginning
 	DWORD offset_to_directories;
 	offset_to_directories = offset_to_section_headers - size_of_directories;
-	//FIXME: 
+	//Restore the directorys 
 	memcpy(reinterpret_cast<void*>(offset_to_directories), reinterpret_cast<void*>(offset_to_directories_org), size_of_directories);
 
 	//Release memory with unpacked data,
@@ -316,13 +316,12 @@ next3:
 				++lookup;
 				++address;
 			}
-
 			//Move to next descriptor
 			++descr;
 		}
 	}
-	//*
-	// adjust base address of imported data
+
+	// Adjust base address of imported data
 	ptrdiff_t locationDelta;
 	locationDelta = (ptrdiff_t)(image_base - nt_headers->OptionalHeader.ImageBase);
 
@@ -362,64 +361,65 @@ next3:
 		}
 
 	}
-	//*/
-	//FIXME:
+
 	//Pointer to TLS directory
 	IMAGE_DATA_DIRECTORY* tls_dir;
 	tls_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_TLS);
-	//Copy TLS index
-	if (info_copy.original_tls_index_rva)
-		*reinterpret_cast<DWORD*>(info_copy.original_tls_index_rva + image_base) = info_copy.tls_index;
-
-	if(info_copy.original_rva_of_tls_callbacks)
+	//If has TLS
+	if(tls_dir->VirtualAddress)
 	{
-		//*
 		PIMAGE_TLS_DIRECTORY tls;
 		tls = reinterpret_cast<PIMAGE_TLS_DIRECTORY>(image_base + tls_dir->VirtualAddress);
-		//If TLS has callbacks
-		PIMAGE_TLS_CALLBACK* tls_callback_address;
-		//Pointer to first callback of an original array
-		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.original_rva_of_tls_callbacks + image_base);
-		//Offset relative to the beginning of original TLS callbacks array
-		DWORD offset = 0;
-		while (true)
+		//Copy TLS index
+		if (tls->AddressOfIndex)
+			*reinterpret_cast<DWORD*>(tls->AddressOfIndex) = info_copy.tls_index;  //not a virtual address
+		if (tls->AddressOfCallBacks)
 		{
-			//If callback is null - this is the end of array
-			if (!*tls_callback_address)
-				break;
+			//If TLS has callbacks
+			PIMAGE_TLS_CALLBACK* tls_callback_address;
+			//Pointer to first callback of an original array
+			tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(tls->AddressOfCallBacks);
+			//Offset relative to the beginning of original TLS callbacks array
+			DWORD offset = 0;
+			while (true)
+			{
+				//If callback is null - this is the end of array
+				if (!*tls_callback_address)
+					break;
 
-			//Copy the address of original one
-			//to our callbacks array
-			*reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base + offset) = *tls_callback_address;
+				//Copy the address of original one
+				//to our callbacks array
+				*reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base + offset) = *tls_callback_address;
 
-			//Move to next callback
-			++tls_callback_address;
-			offset += sizeof(DWORD);
+				//Move to next callback
+				++tls_callback_address;
+				offset += sizeof(DWORD);
+			}
+			if (offset) // Really have callbacks, Call them like loader
+			{
+				//Return to the beginning of the new array
+				tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base);
+				while(true)
+				{
+					//If callback is null - this is the end of array
+					if(!*tls_callback_address)
+						break;
+
+					//Execute callback
+					(*tls_callback_address)(reinterpret_cast<PVOID>(image_base), DLL_PROCESS_ATTACH, 0);
+
+					//Move to next callback
+					++tls_callback_address;
+				}
+			}
 		}
-		//Return to the beginning of the new array
-		tls_callback_address = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(info_copy.new_rva_of_tls_callbacks + image_base);
-		while(true)
-		{
-			//If callback is null - this is the end of array
-			if(!*tls_callback_address)
-				break;
-
-			//Execute callback
-			(*tls_callback_address)(reinterpret_cast<PVOID>(image_base), DLL_PROCESS_ATTACH, 0);
-
-			//Move to next callback
-			++tls_callback_address;
-		}
-		//*/
 	}
-	
 	
 	//Restore headers memory attributes
 	virtual_protect(reinterpret_cast<LPVOID>(image_base), rva_of_first_section, old_protect, &old_protect);
 
 	//Free library before leave
 	free_library(kernel32_dll);
-
 
 	//Create epilogue manually
 	_asm

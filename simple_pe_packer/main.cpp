@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
 
 
 	//Create options description
-	po::options_description visible_options("DXPack Packer 1.1\nCommand Line Options");
+	po::options_description visible_options("DXPack Packer 1.2\nCommand Line Options");
 
 	try
 	{
@@ -296,7 +296,7 @@ int main(int argc, char* argv[])
 		//New section
 		section new_section;
 		//Name - .rsrc (see description below)
-		new_section.set_name(".SPP1");
+		new_section.set_name(".SPP1"); //Simple PE Packer
 		//Available for reading, writing, execution
 		new_section.readable(true).writeable(true).executable(true);
 		//Reference to section raw data
@@ -472,16 +472,6 @@ int main(int argc, char* argv[])
 				//This structure is in the beginning of new added section,
 				//we added it a bit earlier
 				packed_file_info* info = reinterpret_cast<packed_file_info*>(&added_section.get_raw_data()[0]);
-
-				//Write original TLS
-				//relative virtual address
-				info->original_tls_index_rva = tls->get_index_rva();
-
-				//If we have TLS callbacks, write
-				//relative virtual address of their array in original file
-				//to structure
-				if (!tls->get_tls_callbacks().empty())
-					info->original_rva_of_tls_callbacks = tls->get_callbacks_rva();
 
 				//Now the relative virtual address of TLS index
 				//will change - we will make the loader to write it to tls_index field
