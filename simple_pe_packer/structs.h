@@ -19,6 +19,8 @@ struct packed_file_info
 	DWORD size_of_packed_data; //Size of packed data
 	DWORD size_of_unpacked_data; //Size of original data
 	
+	DWORD lock_opcode; //LOCK assembler command fake opcode
+
 	DWORD tls_index; //Loader writes TLS index here
 //	DWORD original_tls_index_rva; //Relative TLS index address in original file
 	DWORD new_rva_of_tls_callbacks; //Relative TLS callback array address in file after our modification									

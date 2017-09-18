@@ -142,7 +142,7 @@ int main(int argc, char* argv[])
 	std::string stmp = decompress_mode ? "Unpacking " : "Packing ";
 	std::cout << stmp << input_file_name << std::endl;
 	//Open a file
-	std::auto_ptr<std::ifstream> file;
+	std::unique_ptr<std::ifstream> file;
 	file.reset(new std::ifstream(input_file_name, std::ios::in | std::ios::binary));
 	if(!*file)
 	{
@@ -292,16 +292,27 @@ int main(int argc, char* argv[])
 
 		//PE file basic information structure
 		packed_file_info basic_info = {0};
+		//LOCK assembler instruction opcode
+		basic_info.lock_opcode = 0xf0;
+
+		//New resource section
+		section resource_section;
+		//Name - .rsrc (see description below)
+		resource_section.set_name(".rsrc"); //
+		//Available for reading
+		resource_section.readable(true);
+		//New empty root resources directory
+		resource_directory new_root_dir;
+
 
 		//New section
 		section new_section;
-		//Name - .rsrc (see description below)
+		//Name - .SPP1
 		new_section.set_name(".SPP1"); //Simple PE Packer
 		//Available for reading, writing, execution
 		new_section.readable(true).writeable(true).executable(true);
 		//Reference to section raw data
 		std::string& out_buf = new_section.get_raw_data();
-
 		//Create smart pointer
 		//and allocate memory required by LZO algorithm
 		//Smart pointer will release this memory
@@ -380,6 +391,27 @@ int main(int argc, char* argv[])
 			exports = get_exported_functions(image, exports_info);
 		}
 
+		//If file has Image Load Config, get information about it
+		std::auto_ptr<image_config_info> load_config;
+		if (image.has_config() && rebuild_load_config)
+		{
+			std::cout << "Reading Image Load Config..." << std::endl;
+
+			try
+			{
+				load_config.reset(new image_config_info(get_image_config(image)));
+			}
+			catch (const pe_exception& e)
+			{
+				image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
+				std::cout << "Error reading load config directory: " << e.what() << std::endl;
+			}
+		}
+		else
+		{
+			image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
+		}
+
 		{
 			//Get reference to first existing 
 			//PE file section
@@ -401,8 +433,99 @@ int main(int argc, char* argv[])
 			//FIXME: Maybe -f ,I don't know
 			total_virtual_size = pe_utils::align_up<DWORD>( max(total_virtual_size, out_buf.size()), image.get_section_alignment() );
 			
+			if (image.has_resources() && repack_resources)
+			{
+				std::cout << "Repacking resources..." << std::endl;
+
+				//Get original file resources (root directory)
+				resource_directory root_dir = get_resources(image);
+				//Wrap original and new resource directory
+				//using helper classes
+				pe_resource_viewer res(root_dir);
+				pe_resource_manager new_res(new_root_dir);
+
+				try
+				{
+					//List all named icon groups
+					//and icon groups with ID
+					pe_resource_viewer::resource_id_list icon_id_list(res.list_resource_ids(pe_resource_viewer::resource_icon_group));
+					pe_resource_viewer::resource_name_list icon_name_list(res.list_resource_names(pe_resource_viewer::resource_icon_group));
+					//Named resources are always placed first, so let's check if they exist
+					if (!icon_name_list.empty())
+					{
+						//Get first icon for first language (by index 0)
+						//If we would have to list languages for specific icon, we could call list_resource_languages
+						//If we would have to get an icon for specific language, we could call get_icon_by_name (overload with language parameter)
+						//Add an icon group to a new resource directory
+						resource_cursor_icon_writer(new_res).add_icon(
+							resource_cursor_icon_reader(res).get_icon_by_name(icon_name_list[0]),
+							icon_name_list[0],
+							res.list_resource_languages(pe_resource_viewer::resource_icon_group, icon_name_list[0]).at(0));
+					}
+					else if (!icon_id_list.empty()) //If there aren't any named icon groups, but groups with ID exist
+					{
+						//Get first icon for first language (by index 0)
+						//If we would have to list languages for specified icon, we could call list_resource_languages
+						//If we would have to get icon for certain language, we could call get_icon_by_id_lang
+						//Add an icon group to a new resource directory
+						resource_cursor_icon_writer(new_res).add_icon(
+							resource_cursor_icon_reader(res).get_icon_by_id(icon_id_list[0]),
+							icon_id_list[0],
+							res.list_resource_languages(pe_resource_viewer::resource_icon_group, icon_id_list[0]).at(0));
+					}
+				}
+				catch (const pe_exception&)
+				{
+					//If there is any issue with resources, for example, missing icons,
+					//do nothing
+				}
+
+				try
+				{
+					//List manifests with ID
+					pe_resource_viewer::resource_id_list manifest_id_list(res.list_resource_ids(pe_resource_viewer::resource_manifest));
+					if (!manifest_id_list.empty()) //If manifest exists
+					{
+						//Get first manifest for first language (by index 0)
+						//Add manifest to a new resource group
+						new_res.add_resource(
+							res.get_resource_data_by_id(pe_resource_viewer::resource_manifest, manifest_id_list[0]).get_data(),
+							pe_resource_viewer::resource_manifest,
+							manifest_id_list[0],
+							res.list_resource_languages(pe_resource_viewer::resource_manifest, manifest_id_list[0]).at(0)
+						);
+					}
+				}
+				catch (const pe_exception&)
+				{
+					//If there is any resource error,
+					//do nothing
+				}
+
+				try
+				{
+					//Get list of version information structures with ID 
+					pe_resource_viewer::resource_id_list version_info_id_list(res.list_resource_ids(pe_resource_viewer::resource_version));
+					if (!version_info_id_list.empty()) //If version information exists
+					{
+						//Get first version information structure for first language (by index 0)
+						//Add version information to a new resource directory
+						new_res.add_resource(
+							res.get_resource_data_by_id(pe_resource_viewer::resource_version, version_info_id_list[0]).get_data(),
+							pe_resource_viewer::resource_version,
+							version_info_id_list[0],
+							res.list_resource_languages(pe_resource_viewer::resource_version, version_info_id_list[0]).at(0)
+						);
+					}
+				}
+				catch (const pe_exception&)
+				{
+					//If there is any resource error,
+					//do nothing
+				}
+			}
+
 			//Delete all PE file sections, except resource section
-			//FIXME : resource section
 			image.get_image_sections().clear();
 
 			//Change file alignment
@@ -594,17 +717,31 @@ int main(int argc, char* argv[])
 				//taking into account SizeOfZeroFill of TLS field
 				image.set_section_virtual_size(unpacker_added_section, data.size() + tls->get_size_of_zero_fill());
 				//At last, strip unnecessary null bytes at the end of the section
-				//if (!image.has_reloc() && !image.has_exports() && !load_config.get())
-					//pe_utils::strip_nullbytes(unpacker_added_section.get_raw_data());
+				if (!image.has_reloc() && !image.has_exports() && !load_config.get())
+					pe_utils::strip_nullbytes(unpacker_added_section.get_raw_data());
 				//and recalculate its sizes (raw and virtual)
 				image.prepare_section(unpacker_added_section);
 			}
-
 						
 			//Set new entry point - now it points to
 			//the beginning of unpacker
 			image.set_ep(image.rva_from_section_offset(unpacker_added_section, 0));
-			std::string& unpacker_section_data = unpacker_added_section.get_raw_data();
+			//std::string& unpacker_section_data = unpacker_added_section.get_raw_data();
+		}
+
+		if (load_config.get())
+		{
+			std::cout << "Repacking load configuration..." << std::endl;
+
+			section& unpacker_section = image.get_image_sections().at(1);
+
+			//Zero Lock prefix address table
+			load_config->clear_lock_prefix_list();
+			load_config->add_lock_prefix_rva(pe_base::rva_from_section_offset(image.get_image_sections().at(0), offsetof(packed_file_info, lock_opcode)));
+
+			//Rebuild load configuration directory and place it to "coderpub" section
+			//Rerbuild SE Handler table automatically, but do not create Lock prefix table
+			rebuild_image_config(image, *load_config, unpacker_section, unpacker_section.get_raw_data().size(), true, true, true, !image.has_reloc() && !image.has_exports());
 		}
 
 		if (image.has_reloc())
@@ -665,6 +802,28 @@ int main(int argc, char* argv[])
 				reloc_tables.push_back(table);
 			}
 
+			if (load_config.get())
+			{
+				//If image has IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG, then we need to add necessary relocations for it,
+				//because it is used by loader
+				DWORD config_directory_offset = image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG)
+					- image.section_from_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG).get_virtual_address();
+
+				//Create new relocation table, as load configuration table can be too far away
+				//from original_image_base_offset. This can lead to relocation table addresses overflow
+				relocation_table table;
+				table.set_rva(image.get_directory_rva(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG));
+
+				if (load_config->get_security_cookie_va())
+					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, SecurityCookie)), IMAGE_REL_BASED_HIGHLOW));
+
+				if (load_config->get_se_handler_table_va())
+					table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, SEHandlerTable)), IMAGE_REL_BASED_HIGHLOW));
+
+				table.add_relocation(relocation_entry(static_cast<WORD>(offsetof(IMAGE_LOAD_CONFIG_DIRECTORY32, LockPrefixTable)), IMAGE_REL_BASED_HIGHLOW));
+				reloc_tables.push_back(table);
+			}
+
 			//Rebuild relocations, placing them at the end
 			//of section with the unpacker code
 			rebuild_relocations(image, reloc_tables, unpacker_section, unpacker_section.get_raw_data().size(), true, !image.has_exports());
@@ -679,12 +838,23 @@ int main(int argc, char* argv[])
 			//Rebuild exports and place them to "coderpub" section
 			rebuild_exports(image, exports_info, exports, unpacker_section, unpacker_section.get_raw_data().size(), true);
 		}
-
+		if (image.has_resources())
+		{
+			//Rebuild resources if they exist
+			if (!new_root_dir.get_entry_list().empty())
+			{
+				//Can not add a empty section
+				resource_section.get_raw_data().resize(1);
+				//Add resource section too
+				section& resource_added_section = image.add_section(resource_section);
+				rebuild_resources(image, new_root_dir, resource_added_section, resource_added_section.get_raw_data().size());
+			}
+		}
 		//Delete all often used directories
 		//we will return them further
 		//and manage correctly, but that way for now
 		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXPORT);			//0
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_RESOURCE);			//2
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_RESOURCE);			//2
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_EXCEPTION);		//3
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_SECURITY);			//4
 		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_BASERELOC);		//5
@@ -692,10 +862,10 @@ int main(int argc, char* argv[])
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_ARCHITECTURE);		//7
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_GLOBALPTR);		//8
 		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_TLS);				//9
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);		//10
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);		//10
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT);		//11
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_IAT);				//12
-		image.remove_directory(IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT);		//13
+		//image.remove_directory(IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT);		//13
 		image.remove_directory(IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR);	//14
 
 		std::string base_file_name;

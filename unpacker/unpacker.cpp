@@ -362,6 +362,38 @@ next3:
 
 	}
 
+	//Pointer to load configuration directory
+	IMAGE_DATA_DIRECTORY* load_config_dir;
+	load_config_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG);
+	//If file has load configuration directory
+	if (load_config_dir->VirtualAddress)
+	{
+		//Get pointer to original load configuration directory
+		const IMAGE_LOAD_CONFIG_DIRECTORY32* cfg = reinterpret_cast<const IMAGE_LOAD_CONFIG_DIRECTORY32*>(load_config_dir->VirtualAddress + image_base);
+
+		//If the directory has LOCK prefixes table
+		//and the loader overwrites our fake LOCK opcode
+		//to NOP (0x90) (i.e. the system has a single processor)
+		if (cfg->LockPrefixTable && info_copy.lock_opcode == 0x90 /* NOP opcode */)
+		{
+			//Get pointer to first element of
+			//absolute address of LOCK prefixes table
+			const DWORD* table_ptr = reinterpret_cast<const DWORD*>(cfg->LockPrefixTable);
+			//Enumerate them
+			while (true)
+			{
+				//Pointer to LOCK prefix
+				BYTE* lock_prefix_va = reinterpret_cast<BYTE*>(*table_ptr);
+
+				if (!lock_prefix_va)
+					break;
+
+				//Change it to NOP
+				*lock_prefix_va = 0x90;
+			}
+		}
+	}
+
 	//Pointer to TLS directory
 	IMAGE_DATA_DIRECTORY* tls_dir;
 	tls_dir = reinterpret_cast<IMAGE_DATA_DIRECTORY*>(offset_to_directories + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_TLS);
